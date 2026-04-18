@@ -13,13 +13,7 @@ export default function DashboardLayout({
         :root {
           --machine-blue: #173f78;
           --machine-blue-dark: #102f5a;
-          --machine-panel: #173660;
-          --machine-panel-soft: #1f477d;
-          --machine-border: #315b93;
           --machine-text: #ffffff;
-          --machine-muted: #d7e3f4;
-          --machine-pill: #f7f9fc;
-          --machine-pill-text: #173f78;
         }
 
         * {
@@ -44,7 +38,7 @@ export default function DashboardLayout({
           top: 0;
           z-index: 40;
           display: grid;
-          grid-template-columns: 280px 1fr auto;
+          grid-template-columns: 320px 1fr auto;
           align-items: center;
           gap: 18px;
           padding: 14px 18px;
@@ -56,7 +50,7 @@ export default function DashboardLayout({
         .machine-brand-card {
           display: flex;
           align-items: center;
-          justify-content: flex-start;
+          justify-content: center;
           min-height: 68px;
           padding: 0 22px;
           border-radius: 18px;
@@ -66,8 +60,8 @@ export default function DashboardLayout({
           font-size: 24px;
           letter-spacing: 0.5px;
           box-shadow: inset 0 0 0 1px rgba(23, 63, 120, 0.08);
-          overflow: hidden;
           white-space: nowrap;
+          overflow: visible;
         }
 
         .machine-brand-text {
@@ -113,13 +107,6 @@ export default function DashboardLayout({
           font-size: 14px;
           padding: 11px 18px;
           cursor: pointer;
-          box-shadow: 0 2px 0 rgba(0, 0, 0, 0.08);
-          transition: transform 0.15s ease, box-shadow 0.15s ease;
-        }
-
-        .machine-header-nav button:hover {
-          transform: translateY(-1px);
-          box-shadow: 0 6px 14px rgba(0, 0, 0, 0.12);
         }
 
         .machine-page-body {
@@ -136,8 +123,8 @@ export default function DashboardLayout({
           }
 
           .machine-brand-card {
-            justify-content: center;
-            max-width: 340px;
+            max-width: 360px;
+            width: 100%;
             margin: 0 auto;
           }
 
