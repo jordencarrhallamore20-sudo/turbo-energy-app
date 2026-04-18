@@ -8,13 +8,18 @@ const supabase = createClient(
 )
 
 export default async function Page() {
-  const { data: machines } = await supabase.from('machines').select('*')
+  const { data: machines, error } = await supabase
+    .from('machines')
+    .select('*')
+    .order('created_at', { ascending: false })
 
   return (
     <div style={{ padding: 40 }}>
       <h1>Machines</h1>
 
-      {machines?.length === 0 && <p>No machines yet</p>}
+      {error && <p>Database error: {error.message}</p>}
+
+      {!error && (!machines || machines.length === 0) && <p>No machines yet</p>}
 
       {machines?.map((m) => (
         <div key={m.id} style={{ marginBottom: 10 }}>
