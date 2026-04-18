@@ -23,7 +23,9 @@ export default function DashboardLayout({
         <nav className="machine-header-nav">
           <button>Admin</button>
           <button>Admin tools</button>
-          <button>Machine lookup</button>
+         <button onClick={() => alert("Machine lookup coming next")}>
+  Machine lookup
+</button> 
           <button>Departments</button>
           <button>Bottom machine register</button>
           <button>Log out</button>
