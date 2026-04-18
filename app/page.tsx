@@ -1,35 +1,37 @@
 export const dynamic = 'force-dynamic'
 
+import { createClient } from '@supabase/supabase-js'
+
 export default async function Page() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  )
 
-  let urlCheck = 'ok'
-  let fetchCheck = 'not run'
-
-  try {
-    new URL(url)
-  } catch (e) {
-    urlCheck = `invalid: ${e instanceof Error ? e.message : String(e)}`
-  }
+  let machines = []
+  let error = null
 
   try {
-    const res = await fetch(url, { method: 'GET', cache: 'no-store' })
-    fetchCheck = `status ${res.status}`
+    const res = await supabase.from('machines').select('*')
+    machines = res.data || []
+    error = res.error
   } catch (e) {
-    fetchCheck = e instanceof Error ? e.message : String(e)
+    error = e
   }
 
   return (
     <div style={{ padding: 40 }}>
-      <h1>Debug</h1>
-      <p>URL present: {String(!!url)}</p>
-      <p>URL value: [{url}]</p>
-      <p>URL length: {url.length}</p>
-      <p>URL valid: {urlCheck}</p>
-      <p>Anon key present: {String(!!anon)}</p>
-      <p>Anon key length: {anon.length}</p>
-      <p>Fetch test: {fetchCheck}</p>
+      <h1>Machines</h1>
+
+      {error && <p>Database error: {error.message || 'fetch failed'}</p>}
+
+      {!error && machines.length === 0 && <p>No machines yet</p>}
+
+      {machines.map((m) => (
+        <div key={m.id}>
+          <b>{m.name}</b> - {m.model} - {m.status} - {m.location}
+        </div>
+      ))}
     </div>
   )
 }
