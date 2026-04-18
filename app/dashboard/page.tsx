@@ -13,9 +13,38 @@ type Machine = {
 
 const STORAGE_KEY = "machines_v1";
 
+const starterMachines: Machine[] = [
+  {
+    id: "EX210",
+    type: "Excavator",
+    department: "Mining",
+    status: "AVAILABLE",
+    location: "Pit A",
+    availability: "92%",
+  },
+  {
+    id: "DT104",
+    type: "Dump Truck",
+    department: "Hauling",
+    status: "DOWN",
+    location: "Workshop",
+    availability: "61%",
+  },
+  {
+    id: "WL33",
+    type: "Wheel Loader",
+    department: "Plant",
+    status: "AVAILABLE",
+    location: "ROM Pad",
+    availability: "88%",
+  },
+];
+
 export default function MachineAvailabilityPage() {
   const [machines, setMachines] = useState<Machine[]>([]);
   const [search, setSearch] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [message, setMessage] = useState("");
 
   const [form, setForm] = useState({
     id: "",
@@ -28,39 +57,21 @@ export default function MachineAvailabilityPage() {
 
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
+
     if (saved) {
       setMachines(JSON.parse(saved));
+    } else {
+      setMachines(starterMachines);
     }
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(machines));
+    if (machines.length > 0) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(machines));
+    }
   }, [machines]);
 
-  const addMachine = () => {
-    if (
-      !form.id ||
-      !form.type ||
-      !form.department ||
-      !form.location ||
-      !form.availability
-    )
-      return;
-
-    const exists = machines.some(
-      (m) => m.id.toLowerCase() === form.id.toLowerCase()
-    );
-    if (exists) return;
-
-    setMachines([
-      {
-        ...form,
-        id: form.id.toUpperCase(),
-        availability: form.availability.replace("%", "") + "%",
-      },
-      ...machines,
-    ]);
-
+  const clearForm = () => {
     setForm({
       id: "",
       type: "",
@@ -69,15 +80,78 @@ export default function MachineAvailabilityPage() {
       location: "",
       availability: "",
     });
+    setEditingId(null);
+  };
+
+  const saveMachine = () => {
+    if (
+      !form.id.trim() ||
+      !form.type.trim() ||
+      !form.department.trim() ||
+      !form.location.trim() ||
+      !form.availability.trim()
+    ) {
+      setMessage("Fill all fields");
+      return;
+    }
+
+    const cleanId = form.id.trim().toUpperCase();
+    const cleanAvailability = `${form.availability.replace("%", "").trim()}%`;
+
+    if (editingId) {
+      setMachines((current) =>
+        current.map((m) =>
+          m.id === editingId
+            ? {
+                ...m,
+                id: cleanId,
+                type: form.type.trim(),
+                department: form.department.trim(),
+                status: form.status,
+                location: form.location.trim(),
+                availability: cleanAvailability,
+              }
+            : m
+        )
+      );
+      setMessage("Machine updated");
+      clearForm();
+      return;
+    }
+
+    const exists = machines.some((m) => m.id.toLowerCase() === cleanId.toLowerCase());
+    if (exists) {
+      setMessage("Unit already exists");
+      return;
+    }
+
+    setMachines((current) => [
+      {
+        id: cleanId,
+        type: form.type.trim(),
+        department: form.department.trim(),
+        status: form.status,
+        location: form.location.trim(),
+        availability: cleanAvailability,
+      },
+      ...current,
+    ]);
+
+    setMessage("Machine added");
+    clearForm();
   };
 
   const deleteMachine = (id: string) => {
-    setMachines(machines.filter((m) => m.id !== id));
+    setMachines((current) => current.filter((m) => m.id !== id));
+    if (editingId === id) {
+      clearForm();
+    }
+    setMessage("Machine deleted");
   };
 
   const toggleStatus = (id: string) => {
-    setMachines(
-      machines.map((m) =>
+    setMachines((current) =>
+      current.map((m) =>
         m.id === id
           ? {
               ...m,
@@ -86,10 +160,30 @@ export default function MachineAvailabilityPage() {
           : m
       )
     );
+    setMessage("Status updated");
+  };
+
+  const editMachine = (machine: Machine) => {
+    setForm({
+      id: machine.id,
+      type: machine.type,
+      department: machine.department,
+      status: machine.status,
+      location: machine.location,
+      availability: machine.availability.replace("%", ""),
+    });
+    setEditingId(machine.id);
+    setMessage("Editing machine");
+  };
+
+  const resetSampleData = () => {
+    setMachines(starterMachines);
+    clearForm();
+    setMessage("Sample data loaded");
   };
 
   const filtered = useMemo(() => {
-    const t = search.toLowerCase();
+    const t = search.toLowerCase().trim();
     return machines.filter(
       (m) =>
         m.id.toLowerCase().includes(t) ||
@@ -103,6 +197,7 @@ export default function MachineAvailabilityPage() {
   const totalMachines = machines.length;
   const availableCount = machines.filter((m) => m.status === "AVAILABLE").length;
   const downCount = machines.filter((m) => m.status === "DOWN").length;
+
   const averageAvailability =
     machines.length > 0
       ? (
@@ -120,8 +215,8 @@ export default function MachineAvailabilityPage() {
           <div style={eyebrowStyle}>WORKSHOP CONTROL</div>
           <h1 style={titleStyle}>Machine Availability Dashboard</h1>
           <p style={subtitleStyle}>
-            Track units, update machine status, search fast, and keep your fleet
-            register clean.
+            Track units, update machine status, search quickly, and manage the
+            live fleet register.
           </p>
         </div>
       </div>
@@ -151,9 +246,13 @@ export default function MachineAvailabilityPage() {
       <div style={mainGridStyle}>
         <section style={panelStyle}>
           <div style={sectionTitleWrapStyle}>
-            <h2 style={sectionTitleStyle}>Add Machine</h2>
+            <h2 style={sectionTitleStyle}>
+              {editingId ? "Edit Machine" : "Add Machine"}
+            </h2>
             <p style={sectionTextStyle}>
-              Enter machine details and save them to your local app.
+              {editingId
+                ? "Update the machine details and save changes."
+                : "Enter machine details and add them to the register."}
             </p>
           </div>
 
@@ -204,9 +303,19 @@ export default function MachineAvailabilityPage() {
           </div>
 
           <div style={actionRowStyle}>
-            <button style={primaryButtonStyle} onClick={addMachine}>
-              Add Machine
+            <button style={primaryButtonStyle} onClick={saveMachine}>
+              {editingId ? "Update Machine" : "Add Machine"}
             </button>
+
+            <button style={secondaryButtonStyle} onClick={clearForm}>
+              Clear
+            </button>
+
+            <button style={secondaryButtonStyle} onClick={resetSampleData}>
+              Load Sample Data
+            </button>
+
+            {message ? <span style={messageStyle}>{message}</span> : null}
           </div>
         </section>
 
@@ -231,7 +340,7 @@ export default function MachineAvailabilityPage() {
         <div style={sectionTitleWrapStyle}>
           <h2 style={sectionTitleStyle}>Machine Register</h2>
           <p style={sectionTextStyle}>
-            Live machine list with status control and delete action.
+            Edit, delete, and update machine status from the table.
           </p>
         </div>
 
@@ -245,7 +354,8 @@ export default function MachineAvailabilityPage() {
                 <th style={thStyle}>Status</th>
                 <th style={thStyle}>Location</th>
                 <th style={thStyle}>Availability</th>
-                <th style={thStyle}>Action</th>
+                <th style={thStyle}>Edit</th>
+                <th style={thStyle}>Delete</th>
               </tr>
             </thead>
             <tbody>
@@ -271,6 +381,14 @@ export default function MachineAvailabilityPage() {
                     <td style={tdStyle}>{m.availability}</td>
                     <td style={tdStyle}>
                       <button
+                        onClick={() => editMachine(m)}
+                        style={editButtonStyle}
+                      >
+                        Edit
+                      </button>
+                    </td>
+                    <td style={tdStyle}>
+                      <button
                         onClick={() => deleteMachine(m.id)}
                         style={deleteButtonStyle}
                       >
@@ -281,7 +399,7 @@ export default function MachineAvailabilityPage() {
                 ))
               ) : (
                 <tr>
-                  <td style={emptyStateStyle} colSpan={7}>
+                  <td style={emptyStateStyle} colSpan={8}>
                     No machines found
                   </td>
                 </tr>
@@ -402,6 +520,7 @@ const actionRowStyle: React.CSSProperties = {
   display: "flex",
   gap: "12px",
   flexWrap: "wrap",
+  alignItems: "center",
 };
 
 const inputStyle: React.CSSProperties = {
@@ -425,6 +544,22 @@ const primaryButtonStyle: React.CSSProperties = {
   cursor: "pointer",
 };
 
+const secondaryButtonStyle: React.CSSProperties = {
+  padding: "12px 18px",
+  borderRadius: "12px",
+  border: "1px solid #334155",
+  background: "#111827",
+  color: "#e2e8f0",
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
+const messageStyle: React.CSSProperties = {
+  color: "#93c5fd",
+  fontSize: "14px",
+  fontWeight: 600,
+};
+
 const tableWrapStyle: React.CSSProperties = {
   overflowX: "auto",
 };
@@ -432,7 +567,7 @@ const tableWrapStyle: React.CSSProperties = {
 const tableStyle: React.CSSProperties = {
   width: "100%",
   borderCollapse: "collapse",
-  minWidth: "900px",
+  minWidth: "1000px",
 };
 
 const thStyle: React.CSSProperties = {
@@ -466,6 +601,16 @@ const downBadgeStyle: React.CSSProperties = {
   border: "none",
   background: "rgba(239, 68, 68, 0.18)",
   color: "#f87171",
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
+const editButtonStyle: React.CSSProperties = {
+  padding: "8px 14px",
+  borderRadius: "10px",
+  border: "1px solid rgba(96, 165, 250, 0.35)",
+  background: "rgba(59, 130, 246, 0.12)",
+  color: "#93c5fd",
   fontWeight: 700,
   cursor: "pointer",
 };
