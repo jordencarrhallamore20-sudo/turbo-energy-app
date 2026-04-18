@@ -13,38 +13,54 @@ type Machine = {
   availability: string;
 };
 
-const STORAGE_KEY = "machine_availability_final_v1";
+const STORAGE_KEY = "machine_availability_prototype_v2";
 
 const starterMachines: Machine[] = [
   {
-    id: "EX210",
-    type: "Excavator",
+    id: "FEL10",
+    type: "SL60",
     department: "Mining",
     status: "AVAILABLE",
-    location: "Pit A",
-    availability: "92%",
+    location: "Hwange",
+    availability: "96.4%",
   },
   {
-    id: "DT104",
-    type: "Dump Truck",
-    department: "Hauling",
-    status: "DOWN",
-    location: "Workshop",
-    availability: "61%",
-  },
-  {
-    id: "WL33",
-    type: "Wheel Loader",
-    department: "Plant",
+    id: "HT12",
+    type: "Haul Truck",
+    department: "Operations",
     status: "AVAILABLE",
-    location: "ROM Pad",
-    availability: "88%",
+    location: "North Pit",
+    availability: "94.8%",
+  },
+  {
+    id: "LV33",
+    type: "Light Vehicle",
+    department: "Admin",
+    status: "DOWN",
+    location: "Main Yard",
+    availability: "78.2%",
+  },
+  {
+    id: "WB05",
+    type: "Water Bowser",
+    department: "Support",
+    status: "AVAILABLE",
+    location: "Plant Area",
+    availability: "95.0%",
+  },
+  {
+    id: "TG02",
+    type: "Generator",
+    department: "Utilities",
+    status: "AVAILABLE",
+    location: "South Section",
+    availability: "100.0%",
   },
 ];
 
 export default function MachineAvailabilityPage() {
   const [machines, setMachines] = useState<Machine[]>([]);
-  const [search, setSearch] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
 
@@ -129,6 +145,7 @@ export default function MachineAvailabilityPage() {
       setMachines((current) =>
         current.map((m) => (m.id === editingId ? cleanMachine : m))
       );
+
       setMessage("Machine updated");
       clearForm();
       return;
@@ -184,8 +201,8 @@ export default function MachineAvailabilityPage() {
   const resetSampleData = () => {
     setMachines(starterMachines);
     clearForm();
-    setSearch("");
-    setMessage("Sample data loaded");
+    setSearchTerm("");
+    setMessage("Reset to sample data");
   };
 
   const exportCsv = () => {
@@ -322,7 +339,7 @@ export default function MachineAvailabilityPage() {
   };
 
   const filteredMachines = useMemo(() => {
-    const t = search.toLowerCase().trim();
+    const t = searchTerm.toLowerCase().trim();
 
     if (!t) return machines;
 
@@ -334,7 +351,7 @@ export default function MachineAvailabilityPage() {
         m.location.toLowerCase().includes(t) ||
         m.status.toLowerCase().includes(t)
     );
-  }, [machines, search]);
+  }, [machines, searchTerm]);
 
   const totalMachines = machines.length;
   const availableCount = machines.filter((m) => m.status === "AVAILABLE").length;
@@ -347,220 +364,420 @@ export default function MachineAvailabilityPage() {
             const value = Number(machine.availability.replace("%", ""));
             return sum + (Number.isNaN(value) ? 0 : value);
           }, 0) / machines.length
-        ).toFixed(1)
-      : "0.0";
+        ).toFixed(2)
+      : "0.00";
+
+  const totalRunTime = machines
+    .reduce((sum, machine) => {
+      const value = Number(machine.availability.replace("%", ""));
+      return sum + (Number.isNaN(value) ? 0 : value * 10);
+    }, 0)
+    .toFixed(2);
+
+  const totalDowntime = machines
+    .reduce((sum, machine) => {
+      const value = Number(machine.availability.replace("%", ""));
+      return sum + (100 - (Number.isNaN(value) ? 0 : value));
+    }, 0)
+    .toFixed(2);
+
+  const unitsBelow85 = machines.filter((m) => {
+    const value = Number(m.availability.replace("%", ""));
+    return !Number.isNaN(value) && value < 85;
+  }).length;
+
+  const summaryCards = [
+    {
+      title: "TOTAL MACHINES",
+      value: String(totalMachines),
+      note: "Active fleet units only",
+    },
+    {
+      title: "AVERAGE FLEET AVAILABILITY",
+      value: `${averageAvailability}%`,
+      note: "Average across active listed machines",
+    },
+    {
+      title: "TOTAL RUN TIME (HRS)",
+      value: totalRunTime,
+      note: "Calculated from current listed machines",
+    },
+    {
+      title: "TOTAL DOWNTIME (HRS)",
+      value: totalDowntime,
+      note: "Combined downtime across current list",
+    },
+    {
+      title: "UNITS BELOW 85%",
+      value: String(unitsBelow85),
+      note: "Click to view lowest availability units",
+    },
+  ];
+
+  const groupedAverages = Object.values(
+    machines.reduce((acc, machine) => {
+      const key = machine.type.toUpperCase();
+      const availabilityValue = Number(machine.availability.replace("%", "")) || 0;
+
+      if (!acc[key]) {
+        acc[key] = {
+          type: key,
+          units: 0,
+          availabilityTotal: 0,
+          runTime: 0,
+          downtime: 0,
+          status: "GREEN",
+        };
+      }
+
+      acc[key].units += 1;
+      acc[key].availabilityTotal += availabilityValue;
+      acc[key].runTime += availabilityValue * 10;
+      acc[key].downtime += 100 - availabilityValue;
+
+      return acc;
+    }, {} as Record<
+      string,
+      {
+        type: string;
+        units: number;
+        availabilityTotal: number;
+        runTime: number;
+        downtime: number;
+        status: string;
+      }
+    >)
+  ).map((item) => {
+    const avg = item.units > 0 ? item.availabilityTotal / item.units : 0;
+
+    return {
+      type: item.type,
+      units: item.units,
+      availability: `${avg.toFixed(2)}%`,
+      runTime: item.runTime.toFixed(2),
+      downtime: item.downtime.toFixed(2),
+      status: avg >= 90 ? "GREEN" : avg >= 80 ? "AMBER" : "RED",
+    };
+  });
+
+  const chartBars = groupedAverages.map((row) => {
+    const value = Number(row.availability.replace("%", ""));
+    return {
+      label: row.type,
+      value: `${value.toFixed(1)}%`,
+      height: `${Math.max(value, 8)}%`,
+    };
+  });
 
   return (
-    <div style={pageStyle}>
+    <div className="availability-page">
       <style>{`
         @media print {
           input, select, button {
             display: none !important;
           }
           body {
-            background: #ffffff !important;
+            background: white !important;
           }
         }
       `}</style>
 
-      <div style={heroStyle}>
-        <div>
-          <div style={eyebrowStyle}>WORKSHOP CONTROL</div>
-          <h1 style={titleStyle}>Machine Availability Dashboard</h1>
-          <p style={subtitleStyle}>
-            Final dashboard with add, edit, delete, search, status toggle, CSV upload,
-            CSV export, print report, and auto save.
-          </p>
-        </div>
-      </div>
-
-      <div style={summaryGridStyle}>
-        <div style={cardStyle}>
-          <div style={cardLabelStyle}>Total Machines</div>
-          <div style={cardValueStyle}>{totalMachines}</div>
+      <section className="upload-panel">
+        <div className="section-heading">
+          <h2>Admin Upload and Save</h2>
         </div>
 
-        <div style={cardStyle}>
-          <div style={cardLabelStyle}>Available</div>
-          <div style={cardValueStyle}>{availableCount}</div>
+        <div className="upload-grid">
+          <div className="upload-main">
+            <label className="upload-label">Upload CSV workbook</label>
+            <input className="upload-input" type="file" accept=".csv" onChange={handleCsvUpload} />
+          </div>
+
+          <div className="upload-actions">
+            <button className="primary-btn" onClick={exportCsv}>
+              Export CSV
+            </button>
+            <button className="secondary-btn" onClick={resetSampleData}>
+              Reset to sample data
+            </button>
+            <button className="secondary-btn" onClick={printReport}>
+              Print report
+            </button>
+          </div>
         </div>
 
-        <div style={cardStyle}>
-          <div style={cardLabelStyle}>Down</div>
-          <div style={cardValueStyle}>{downCount}</div>
+        <div className="info-strip">
+          Upload a CSV file or manage machines directly in the app. Add, edit,
+          search, export, print, and save browser data without losing the original layout.
         </div>
 
-        <div style={cardStyle}>
-          <div style={cardLabelStyle}>Average Availability</div>
-          <div style={cardValueStyle}>{averageAvailability}%</div>
-        </div>
-      </div>
-
-      <section style={panelStyle}>
-        <div style={sectionTitleWrapStyle}>
-          <h2 style={sectionTitleStyle}>Import / Export / Tools</h2>
-          <p style={sectionTextStyle}>
-            Use CSV only. Upload CSV, export CSV, print report, or reset sample data.
-          </p>
-        </div>
-
-        <div style={actionRowStyle}>
-          <input type="file" accept=".csv" onChange={handleCsvUpload} />
-          <button style={primaryButtonStyle} onClick={exportCsv}>
-            Export CSV
-          </button>
-          <button style={secondaryButtonStyle} onClick={printReport}>
-            Print Report
-          </button>
-          <button style={secondaryButtonStyle} onClick={resetSampleData}>
-            Load Sample Data
-          </button>
-        </div>
-
-        {message ? <div style={messageStyle}>{message}</div> : null}
+        {message ? (
+          <div style={{ marginTop: "12px", color: "#184785", fontWeight: 600 }}>
+            {message}
+          </div>
+        ) : null}
       </section>
 
-      <div style={mainGridStyle}>
-        <section style={panelStyle}>
-          <div style={sectionTitleWrapStyle}>
-            <h2 style={sectionTitleStyle}>
-              {editingId ? "Edit Machine" : "Add Machine"}
-            </h2>
-            <p style={sectionTextStyle}>
-              {editingId
-                ? "Update the selected machine and save changes."
-                : "Enter new machine details and add to the register."}
+      <section className="availability-summary-grid">
+        {summaryCards.map((card) => (
+          <div className="availability-summary-card" key={card.title}>
+            <span className="availability-card-title">{card.title}</span>
+            <strong className="availability-card-value">{card.value}</strong>
+            <p className="availability-card-note">{card.note}</p>
+          </div>
+        ))}
+      </section>
+
+      <section className="availability-main-grid">
+        <div className="availability-panel large-panel">
+          <div className="panel-title-wrap">
+            <h2>Grouped Machine Type Averages</h2>
+            <p>
+              Same machine types grouped together, including Light Vehicles.
+              Major repair units are excluded.
             </p>
           </div>
 
-          <div style={formGridStyle}>
-            <input
-              style={inputStyle}
-              placeholder="Unit No"
-              value={form.id}
-              onChange={(e) => setForm({ ...form, id: e.target.value })}
-            />
-            <input
-              style={inputStyle}
-              placeholder="Machine Type"
-              value={form.type}
-              onChange={(e) => setForm({ ...form, type: e.target.value })}
-            />
-            <input
-              style={inputStyle}
-              placeholder="Department"
-              value={form.department}
-              onChange={(e) => setForm({ ...form, department: e.target.value })}
-            />
-            <select
-              style={inputStyle}
-              value={form.status}
-              onChange={(e) =>
-                setForm({
-                  ...form,
-                  status: e.target.value as MachineStatus,
-                })
-              }
-            >
-              <option value="AVAILABLE">AVAILABLE</option>
-              <option value="DOWN">DOWN</option>
-            </select>
-            <input
-              style={inputStyle}
-              placeholder="Location"
-              value={form.location}
-              onChange={(e) => setForm({ ...form, location: e.target.value })}
-            />
-            <input
-              style={inputStyle}
-              placeholder="Availability %"
-              value={form.availability}
-              onChange={(e) => setForm({ ...form, availability: e.target.value })}
-            />
+          <div className="availability-table-wrap">
+            <table className="availability-table">
+              <thead>
+                <tr>
+                  <th>Machine Type</th>
+                  <th>Units</th>
+                  <th>Average Availability</th>
+                  <th>Total Run Time</th>
+                  <th>Total Downtime</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {groupedAverages.map((row) => (
+                  <tr key={row.type}>
+                    <td>{row.type}</td>
+                    <td>{row.units}</td>
+                    <td>{row.availability}</td>
+                    <td>{row.runTime}</td>
+                    <td>{row.downtime}</td>
+                    <td>
+                      <span
+                        className={
+                          row.status === "GREEN"
+                            ? "status-badge green"
+                            : row.status === "AMBER"
+                            ? "status-badge amber"
+                            : "status-badge red"
+                        }
+                      >
+                        {row.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="availability-side-column">
+          <div className="availability-panel">
+            <div className="panel-title-wrap">
+              <h2>Monthly Trends</h2>
+              <p>Type averages from current saved dataset</p>
+            </div>
+
+            <div className="bar-chart">
+              {chartBars.map((bar) => (
+                <div className="bar-item" key={bar.label}>
+                  <span className="bar-value">{bar.value}</span>
+                  <div className="bar-track">
+                    <div className="bar-fill" style={{ height: bar.height }} />
+                  </div>
+                  <span className="bar-label">{bar.label}</span>
+                </div>
+              ))}
+            </div>
           </div>
 
-          <div style={actionRowStyle}>
-            <button style={primaryButtonStyle} onClick={saveMachine}>
-              {editingId ? "Update Machine" : "Add Machine"}
-            </button>
-            <button style={secondaryButtonStyle} onClick={clearForm}>
-              Clear
-            </button>
+          <div className="availability-panel">
+            <div className="panel-title-wrap">
+              <h2>PDF Report Generator</h2>
+            </div>
+
+            <div className="report-grid">
+              <div className="report-field">
+                <label>Report type</label>
+                <select defaultValue="Monthly">
+                  <option>Monthly</option>
+                  <option>Weekly</option>
+                  <option>Daily</option>
+                </select>
+              </div>
+
+              <div className="report-field">
+                <label>Report title / period</label>
+                <input type="text" placeholder="e.g. April 2026" />
+              </div>
+            </div>
+
+            <div className="report-actions">
+              <button className="primary-btn" onClick={printReport}>
+                Generate report
+              </button>
+              <button className="secondary-btn" onClick={exportCsv}>
+                Download CSV
+              </button>
+            </div>
           </div>
-        </section>
+        </div>
+      </section>
 
-        <section style={panelStyle}>
-          <div style={sectionTitleWrapStyle}>
-            <h2 style={sectionTitleStyle}>Search Register</h2>
-            <p style={sectionTextStyle}>
-              Search by unit, type, department, location, or status.
-            </p>
-          </div>
-
-          <input
-            style={inputStyle}
-            placeholder="Search machines..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </section>
-      </div>
-
-      <section style={panelStyle}>
-        <div style={sectionTitleWrapStyle}>
-          <h2 style={sectionTitleStyle}>Machine Register</h2>
-          <p style={sectionTextStyle}>
-            Live register with edit, delete, status update, and filtering.
+      <section className="availability-panel bottom-register-panel">
+        <div className="panel-title-wrap">
+          <h2>{editingId ? "Edit Machine" : "Add Machine"}</h2>
+          <p>
+            Keep the original dashboard style, but now add or edit live machine data.
           </p>
         </div>
 
-        <div style={tableWrapStyle}>
-          <table style={tableStyle}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+            gap: "12px",
+            marginBottom: "16px",
+          }}
+        >
+          <input
+            type="text"
+            placeholder="Unit No"
+            value={form.id}
+            onChange={(e) => setForm({ ...form, id: e.target.value })}
+            style={fieldStyle}
+          />
+          <input
+            type="text"
+            placeholder="Machine Type"
+            value={form.type}
+            onChange={(e) => setForm({ ...form, type: e.target.value })}
+            style={fieldStyle}
+          />
+          <input
+            type="text"
+            placeholder="Department"
+            value={form.department}
+            onChange={(e) => setForm({ ...form, department: e.target.value })}
+            style={fieldStyle}
+          />
+          <select
+            value={form.status}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                status: e.target.value as MachineStatus,
+              })
+            }
+            style={fieldStyle}
+          >
+            <option value="AVAILABLE">AVAILABLE</option>
+            <option value="DOWN">DOWN</option>
+          </select>
+          <input
+            type="text"
+            placeholder="Location"
+            value={form.location}
+            onChange={(e) => setForm({ ...form, location: e.target.value })}
+            style={fieldStyle}
+          />
+          <input
+            type="text"
+            placeholder="Availability %"
+            value={form.availability}
+            onChange={(e) => setForm({ ...form, availability: e.target.value })}
+            style={fieldStyle}
+          />
+        </div>
+
+        <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", marginBottom: "18px" }}>
+          <button className="primary-btn" onClick={saveMachine}>
+            {editingId ? "Update Machine" : "Add Machine"}
+          </button>
+          <button className="secondary-btn" onClick={clearForm}>
+            Clear
+          </button>
+        </div>
+
+        <div className="panel-title-wrap">
+          <h2>Bottom Machine Register</h2>
+          <p>
+            Full machine list with department, status, location, availability, edit,
+            delete, and lookup search.
+          </p>
+        </div>
+
+        <div style={{ marginBottom: "16px" }}>
+          <input
+            type="text"
+            placeholder="Search by unit, type, department, location or status"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            style={{
+              ...fieldStyle,
+              width: "100%",
+              maxWidth: "480px",
+            }}
+          />
+        </div>
+
+        <div className="availability-table-wrap">
+          <table className="availability-table">
             <thead>
               <tr>
-                <th style={thStyle}>Unit</th>
-                <th style={thStyle}>Type</th>
-                <th style={thStyle}>Department</th>
-                <th style={thStyle}>Status</th>
-                <th style={thStyle}>Location</th>
-                <th style={thStyle}>Availability</th>
-                <th style={thStyle}>Edit</th>
-                <th style={thStyle}>Delete</th>
+                <th>Unit No</th>
+                <th>Machine Type</th>
+                <th>Department</th>
+                <th>Status</th>
+                <th>Location</th>
+                <th>Availability</th>
+                <th>Edit</th>
+                <th>Delete</th>
               </tr>
             </thead>
             <tbody>
               {filteredMachines.length > 0 ? (
-                filteredMachines.map((m) => (
-                  <tr key={m.id}>
-                    <td style={tdStyle}>{m.id}</td>
-                    <td style={tdStyle}>{m.type}</td>
-                    <td style={tdStyle}>{m.department}</td>
-                    <td style={tdStyle}>
+                filteredMachines.map((machine) => (
+                  <tr key={machine.id}>
+                    <td>{machine.id}</td>
+                    <td>{machine.type}</td>
+                    <td>{machine.department}</td>
+                    <td>
                       <button
-                        onClick={() => toggleStatus(m.id)}
-                        style={
-                          m.status === "AVAILABLE"
-                            ? availableBadgeStyle
-                            : downBadgeStyle
+                        onClick={() => toggleStatus(machine.id)}
+                        className={
+                          machine.status === "AVAILABLE"
+                            ? "status-badge green"
+                            : "status-badge red"
                         }
+                        style={statusButtonStyle}
                       >
-                        {m.status}
+                        {machine.status}
                       </button>
                     </td>
-                    <td style={tdStyle}>{m.location}</td>
-                    <td style={tdStyle}>{m.availability}</td>
-                    <td style={tdStyle}>
+                    <td>{machine.location}</td>
+                    <td>{machine.availability}</td>
+                    <td>
                       <button
-                        onClick={() => editMachine(m)}
-                        style={editButtonStyle}
+                        className="secondary-btn"
+                        onClick={() => editMachine(machine)}
+                        style={smallButtonStyle}
                       >
                         Edit
                       </button>
                     </td>
-                    <td style={tdStyle}>
+                    <td>
                       <button
-                        onClick={() => deleteMachine(m.id)}
-                        style={deleteButtonStyle}
+                        className="secondary-btn"
+                        onClick={() => deleteMachine(machine.id)}
+                        style={smallButtonStyle}
                       >
                         Delete
                       </button>
@@ -569,7 +786,7 @@ export default function MachineAvailabilityPage() {
                 ))
               ) : (
                 <tr>
-                  <td style={emptyStateStyle} colSpan={8}>
+                  <td colSpan={8} style={{ textAlign: "center", padding: "20px" }}>
                     No machines found
                   </td>
                 </tr>
@@ -582,223 +799,20 @@ export default function MachineAvailabilityPage() {
   );
 }
 
-const pageStyle: React.CSSProperties = {
-  minHeight: "100vh",
-  padding: "24px",
-  background:
-    "radial-gradient(circle at top, rgba(37, 99, 235, 0.18), transparent 30%), #081120",
-  color: "#ffffff",
-};
-
-const heroStyle: React.CSSProperties = {
-  marginBottom: "20px",
-  padding: "24px",
-  borderRadius: "20px",
-  background: "linear-gradient(135deg, #0f172a, #13233d)",
-  border: "1px solid rgba(148, 163, 184, 0.18)",
-  boxShadow: "0 20px 45px rgba(0, 0, 0, 0.25)",
-};
-
-const eyebrowStyle: React.CSSProperties = {
-  fontSize: "12px",
-  letterSpacing: "1.8px",
-  color: "#60a5fa",
-  fontWeight: 700,
-  marginBottom: "8px",
-};
-
-const titleStyle: React.CSSProperties = {
-  margin: 0,
-  fontSize: "32px",
-  fontWeight: 800,
-};
-
-const subtitleStyle: React.CSSProperties = {
-  margin: "10px 0 0 0",
-  color: "#cbd5e1",
-  fontSize: "15px",
-  maxWidth: "720px",
-  lineHeight: 1.6,
-};
-
-const summaryGridStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-  gap: "16px",
-  marginBottom: "20px",
-};
-
-const cardStyle: React.CSSProperties = {
-  background: "rgba(15, 23, 42, 0.92)",
-  border: "1px solid rgba(148, 163, 184, 0.15)",
-  borderRadius: "18px",
-  padding: "20px",
-  boxShadow: "0 14px 30px rgba(0, 0, 0, 0.2)",
-};
-
-const cardLabelStyle: React.CSSProperties = {
-  fontSize: "13px",
-  color: "#94a3b8",
-  marginBottom: "10px",
-};
-
-const cardValueStyle: React.CSSProperties = {
-  fontSize: "30px",
-  fontWeight: 800,
-  color: "#ffffff",
-};
-
-const mainGridStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "1.3fr 0.9fr",
-  gap: "20px",
-  marginBottom: "20px",
-};
-
-const panelStyle: React.CSSProperties = {
-  background: "rgba(15, 23, 42, 0.94)",
-  border: "1px solid rgba(148, 163, 184, 0.15)",
-  borderRadius: "20px",
-  padding: "20px",
-  boxShadow: "0 18px 36px rgba(0, 0, 0, 0.22)",
-  marginBottom: "20px",
-};
-
-const sectionTitleWrapStyle: React.CSSProperties = {
-  marginBottom: "16px",
-};
-
-const sectionTitleStyle: React.CSSProperties = {
-  margin: 0,
-  fontSize: "20px",
-  fontWeight: 700,
-};
-
-const sectionTextStyle: React.CSSProperties = {
-  margin: "6px 0 0 0",
-  color: "#94a3b8",
-  fontSize: "14px",
-};
-
-const formGridStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
-  gap: "12px",
-};
-
-const actionRowStyle: React.CSSProperties = {
-  marginTop: "14px",
-  display: "flex",
-  gap: "12px",
-  flexWrap: "wrap",
-  alignItems: "center",
-};
-
-const inputStyle: React.CSSProperties = {
-  width: "100%",
+const fieldStyle: React.CSSProperties = {
   padding: "12px 14px",
   borderRadius: "12px",
-  border: "1px solid #243244",
-  background: "#0b1324",
-  color: "#ffffff",
-  fontSize: "14px",
-  outline: "none",
-};
-
-const primaryButtonStyle: React.CSSProperties = {
-  padding: "12px 18px",
-  borderRadius: "12px",
-  border: "none",
-  background: "linear-gradient(135deg, #2563eb, #1d4ed8)",
-  color: "#ffffff",
-  fontWeight: 700,
-  cursor: "pointer",
-};
-
-const secondaryButtonStyle: React.CSSProperties = {
-  padding: "12px 18px",
-  borderRadius: "12px",
-  border: "1px solid #334155",
-  background: "#111827",
-  color: "#e2e8f0",
-  fontWeight: 700,
-  cursor: "pointer",
-};
-
-const messageStyle: React.CSSProperties = {
-  marginTop: "14px",
-  color: "#93c5fd",
-  fontSize: "14px",
-  fontWeight: 600,
-};
-
-const tableWrapStyle: React.CSSProperties = {
-  overflowX: "auto",
-};
-
-const tableStyle: React.CSSProperties = {
-  width: "100%",
-  borderCollapse: "collapse",
-  minWidth: "1000px",
-};
-
-const thStyle: React.CSSProperties = {
-  textAlign: "left",
-  padding: "14px 12px",
-  borderBottom: "1px solid #243244",
-  color: "#94a3b8",
-  fontSize: "13px",
-  fontWeight: 700,
-};
-
-const tdStyle: React.CSSProperties = {
-  padding: "14px 12px",
-  borderBottom: "1px solid rgba(36, 50, 68, 0.7)",
+  border: "1px solid #c7d3e4",
+  background: "#ffffff",
+  color: "#173f78",
   fontSize: "14px",
 };
 
-const availableBadgeStyle: React.CSSProperties = {
-  padding: "8px 14px",
-  borderRadius: "999px",
+const statusButtonStyle: React.CSSProperties = {
   border: "none",
-  background: "rgba(34, 197, 94, 0.18)",
-  color: "#4ade80",
-  fontWeight: 700,
   cursor: "pointer",
 };
 
-const downBadgeStyle: React.CSSProperties = {
-  padding: "8px 14px",
-  borderRadius: "999px",
-  border: "none",
-  background: "rgba(239, 68, 68, 0.18)",
-  color: "#f87171",
-  fontWeight: 700,
-  cursor: "pointer",
-};
-
-const editButtonStyle: React.CSSProperties = {
-  padding: "8px 14px",
-  borderRadius: "10px",
-  border: "1px solid rgba(96, 165, 250, 0.35)",
-  background: "rgba(59, 130, 246, 0.12)",
-  color: "#93c5fd",
-  fontWeight: 700,
-  cursor: "pointer",
-};
-
-const deleteButtonStyle: React.CSSProperties = {
-  padding: "8px 14px",
-  borderRadius: "10px",
-  border: "1px solid rgba(239, 68, 68, 0.35)",
-  background: "rgba(239, 68, 68, 0.12)",
-  color: "#fca5a5",
-  fontWeight: 700,
-  cursor: "pointer",
-};
-
-const emptyStateStyle: React.CSSProperties = {
-  padding: "24px",
-  textAlign: "center",
-  color: "#94a3b8",
+const smallButtonStyle: React.CSSProperties = {
+  padding: "8px 12px",
 };
