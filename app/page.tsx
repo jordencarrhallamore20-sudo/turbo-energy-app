@@ -12,7 +12,7 @@ export default async function Page() {
     <div style={{ padding: 40 }}>
       <h1>Machines</h1>
 
-      {!machines?.length && <p>No machines yet</p>}
+      {machines?.length === 0 && <p>No machines yet</p>}
 
       {machines?.map((m) => (
         <div key={m.id} style={{ marginBottom: 10 }}>
