@@ -1,31 +1,35 @@
 export const dynamic = 'force-dynamic'
 
-import { createClient } from '@supabase/supabase-js'
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-) 
-
 export default async function Page() {
-  const { data: machines, error } = await supabase
-    .from('machines')
-    .select('*')
-    .order('created_at', { ascending: false })
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+
+  let urlCheck = 'ok'
+  let fetchCheck = 'not run'
+
+  try {
+    new URL(url)
+  } catch (e) {
+    urlCheck = `invalid: ${e instanceof Error ? e.message : String(e)}`
+  }
+
+  try {
+    const res = await fetch(url, { method: 'GET', cache: 'no-store' })
+    fetchCheck = `status ${res.status}`
+  } catch (e) {
+    fetchCheck = e instanceof Error ? e.message : String(e)
+  }
 
   return (
     <div style={{ padding: 40 }}>
-      <h1>Machines</h1>
-
-      {error && <p>Database error: {error.message}</p>}
-
-      {!error && machines && machines.length === 0 && <p>No machines yet</p>}
-
-      {machines?.map((m) => (
-        <div key={m.id} style={{ marginBottom: 10 }}>
-          <b>{m.name}</b> — {m.model} — {m.status} — {m.location}
-        </div>
-      ))}
+      <h1>Debug</h1>
+      <p>URL present: {String(!!url)}</p>
+      <p>URL value: [{url}]</p>
+      <p>URL length: {url.length}</p>
+      <p>URL valid: {urlCheck}</p>
+      <p>Anon key present: {String(!!anon)}</p>
+      <p>Anon key length: {anon.length}</p>
+      <p>Fetch test: {fetchCheck}</p>
     </div>
   )
 }
