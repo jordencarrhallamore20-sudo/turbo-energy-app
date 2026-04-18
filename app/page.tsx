@@ -19,7 +19,7 @@ export default async function Page() {
 
       {error && <p>Database error: {error.message}</p>}
 
-      {!error && (!machines || machines.length === 0) && <p>No machines yet</p>}
+      {!error && machines && machines.length === 0 && <p>No machines yet</p>}
 
       {machines?.map((m) => (
         <div key={m.id} style={{ marginBottom: 10 }}>
