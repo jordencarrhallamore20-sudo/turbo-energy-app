@@ -500,3 +500,83 @@ select {
     width: 100%;
   }
 }
+/* ===== MACHINE HEADER ===== */
+
+.machine-app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.machine-top-header {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 18px;
+  padding: 16px 20px;
+  background: #153a6b;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Left logo block */
+.machine-brand-card {
+  background: white;
+  padding: 14px 22px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+}
+
+.machine-brand-text {
+  font-weight: 800;
+  font-size: 20px;
+  color: #6b7c93;
+  letter-spacing: 1px;
+}
+
+/* Center title */
+.machine-header-center {
+  text-align: center;
+}
+
+.machine-header-center h1 {
+  margin: 0;
+  font-size: 22px;
+  color: white;
+}
+
+.machine-header-center p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #c9d6ea;
+}
+
+/* Right buttons */
+.machine-header-nav {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.machine-header-nav button {
+  background: white;
+  color: #153a6b;
+  border: none;
+  padding: 10px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.machine-header-nav button:hover {
+  transform: translateY(-1px);
+  background: #f0f4fa;
+}
+
+/* Main content spacing */
+.machine-main-content {
+  padding: 20px;
+}
