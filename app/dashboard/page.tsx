@@ -13,7 +13,7 @@ type Machine = {
   availability: string;
 };
 
-const STORAGE_KEY = "machine_availability_prototype_v2";
+const STORAGE_KEY = "machine_availability_prototype_final_v1";
 
 const starterMachines: Machine[] = [
   {
@@ -145,7 +145,6 @@ export default function MachineAvailabilityPage() {
       setMachines((current) =>
         current.map((m) => (m.id === editingId ? cleanMachine : m))
       );
-
       setMessage("Machine updated");
       clearForm();
       return;
@@ -410,7 +409,7 @@ export default function MachineAvailabilityPage() {
     {
       title: "UNITS BELOW 85%",
       value: String(unitsBelow85),
-      note: "Click to view lowest availability units",
+      note: "Current units below target availability",
     },
   ];
 
@@ -426,7 +425,6 @@ export default function MachineAvailabilityPage() {
           availabilityTotal: 0,
           runTime: 0,
           downtime: 0,
-          status: "GREEN",
         };
       }
 
@@ -444,7 +442,6 @@ export default function MachineAvailabilityPage() {
         availabilityTotal: number;
         runTime: number;
         downtime: number;
-        status: string;
       }
     >)
   ).map((item) => {
@@ -490,7 +487,12 @@ export default function MachineAvailabilityPage() {
         <div className="upload-grid">
           <div className="upload-main">
             <label className="upload-label">Upload CSV workbook</label>
-            <input className="upload-input" type="file" accept=".csv" onChange={handleCsvUpload} />
+            <input
+              className="upload-input"
+              type="file"
+              accept=".csv"
+              onChange={handleCsvUpload}
+            />
           </div>
 
           <div className="upload-actions">
@@ -508,7 +510,7 @@ export default function MachineAvailabilityPage() {
 
         <div className="info-strip">
           Upload a CSV file or manage machines directly in the app. Add, edit,
-          search, export, print, and save browser data without losing the original layout.
+          search, export, print, and save browser data without losing the prototype look.
         </div>
 
         {message ? (
@@ -573,6 +575,13 @@ export default function MachineAvailabilityPage() {
                     </td>
                   </tr>
                 ))}
+                {groupedAverages.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} style={{ textAlign: "center", padding: "20px" }}>
+                      No machine type data
+                    </td>
+                  </tr>
+                ) : null}
               </tbody>
             </table>
           </div>
@@ -600,7 +609,7 @@ export default function MachineAvailabilityPage() {
 
           <div className="availability-panel">
             <div className="panel-title-wrap">
-              <h2>PDF Report Generator</h2>
+              <h2>Report Tools</h2>
             </div>
 
             <div className="report-grid">
@@ -697,7 +706,14 @@ export default function MachineAvailabilityPage() {
           />
         </div>
 
-        <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", marginBottom: "18px" }}>
+        <div
+          style={{
+            display: "flex",
+            gap: "12px",
+            flexWrap: "wrap",
+            marginBottom: "18px",
+          }}
+        >
           <button className="primary-btn" onClick={saveMachine}>
             {editingId ? "Update Machine" : "Add Machine"}
           </button>
