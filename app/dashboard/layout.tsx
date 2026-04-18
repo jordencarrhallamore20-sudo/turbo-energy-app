@@ -1,3 +1,5 @@
+"use client";
+
 import type { ReactNode } from "react";
 
 export default function DashboardLayout({
@@ -21,14 +23,33 @@ export default function DashboardLayout({
         </div>
 
         <nav className="machine-header-nav">
-          <button>Admin</button>
-          <button>Admin tools</button>
-         <button onClick={() => alert("Machine lookup coming next")}>
-  Machine lookup
-</button> 
-          <button>Departments</button>
-          <button>Bottom machine register</button>
-          <button>Log out</button>
+          <button onClick={() => alert("Admin section coming next")}>
+            Admin
+          </button>
+
+          <button onClick={() => alert("Admin tools coming next")}>
+            Admin tools
+          </button>
+
+          <button onClick={() => alert("Machine lookup coming next")}>
+            Machine lookup
+          </button>
+
+          <button onClick={() => alert("Departments section coming next")}>
+            Departments
+          </button>
+
+          <button
+            onClick={() =>
+              alert("Bottom machine register is already on this page")
+            }
+          >
+            Bottom machine register
+          </button>
+
+          <button onClick={() => alert("Log out function coming next")}>
+            Log out
+          </button>
         </nav>
       </header>
 
