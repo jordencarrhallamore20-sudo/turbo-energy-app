@@ -224,6 +224,82 @@ export default function MachineAvailabilityPage() {
           </div>
         </div>
       </section>
+      <section className="availability-panel bottom-register-panel">
+  <div className="panel-title-wrap">
+    <h2>Bottom Machine Register</h2>
+    <p>
+      Full machine list with department, status, location, and latest recorded
+      availability.
+    </p>
+  </div>
+
+  <div className="availability-table-wrap">
+    <table className="availability-table">
+      <thead>
+        <tr>
+          <th>Unit No</th>
+          <th>Machine Type</th>
+          <th>Department</th>
+          <th>Status</th>
+          <th>Location</th>
+          <th>Availability</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>FEL10</td>
+          <td>SL60</td>
+          <td>Mining</td>
+          <td>
+            <span className="status-badge green">AVAILABLE</span>
+          </td>
+          <td>Hwange</td>
+          <td>96.4%</td>
+        </tr>
+        <tr>
+          <td>HT12</td>
+          <td>Haul Truck</td>
+          <td>Operations</td>
+          <td>
+            <span className="status-badge green">AVAILABLE</span>
+          </td>
+          <td>North Pit</td>
+          <td>94.8%</td>
+        </tr>
+        <tr>
+          <td>LV33</td>
+          <td>Light Vehicle</td>
+          <td>Admin</td>
+          <td>
+            <span className="status-badge red">DOWN</span>
+          </td>
+          <td>Main Yard</td>
+          <td>78.2%</td>
+        </tr>
+        <tr>
+          <td>WB05</td>
+          <td>Water Bowser</td>
+          <td>Support</td>
+          <td>
+            <span className="status-badge green">AVAILABLE</span>
+          </td>
+          <td>Plant Area</td>
+          <td>95.0%</td>
+        </tr>
+        <tr>
+          <td>TG02</td>
+          <td>Generator</td>
+          <td>Utilities</td>
+          <td>
+            <span className="status-badge green">AVAILABLE</span>
+          </td>
+          <td>South Section</td>
+          <td>100.0%</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
     </div>
   );
 }
