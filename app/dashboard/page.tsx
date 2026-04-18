@@ -13,7 +13,7 @@ type Machine = {
   availability: string;
 };
 
-const STORAGE_KEY = "machine_availability_prototype_final_v1";
+const STORAGE_KEY = "machine_availability_prototype_final_v2";
 
 const starterMachines: Machine[] = [
   {
@@ -63,6 +63,8 @@ export default function MachineAvailabilityPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
+  const [reportTitle, setReportTitle] = useState("April 2026");
+  const [reportType, setReportType] = useState("Monthly");
 
   const [form, setForm] = useState({
     id: "",
@@ -327,9 +329,9 @@ export default function MachineAvailabilityPage() {
 
       setMachines(parsedMachines);
       clearForm();
-      setMessage(`Loaded ${parsedMachines.length} machines from CSV`);
+      setMessage(`Loaded ${parsedMachines.length} rows from spreadsheet CSV`);
     } catch {
-      setMessage("CSV upload failed");
+      setMessage("Spreadsheet upload failed");
     }
   };
 
@@ -457,12 +459,60 @@ export default function MachineAvailabilityPage() {
     };
   });
 
+  const departmentAverages = Object.values(
+    machines.reduce((acc, machine) => {
+      const key = machine.department.toUpperCase();
+      const availabilityValue = Number(machine.availability.replace("%", "")) || 0;
+
+      if (!acc[key]) {
+        acc[key] = {
+          department: key,
+          units: 0,
+          availabilityTotal: 0,
+          availableUnits: 0,
+          downUnits: 0,
+        };
+      }
+
+      acc[key].units += 1;
+      acc[key].availabilityTotal += availabilityValue;
+
+      if (machine.status === "AVAILABLE") {
+        acc[key].availableUnits += 1;
+      } else {
+        acc[key].downUnits += 1;
+      }
+
+      return acc;
+    }, {} as Record<
+      string,
+      {
+        department: string;
+        units: number;
+        availabilityTotal: number;
+        availableUnits: number;
+        downUnits: number;
+      }
+    >)
+  ).map((item) => {
+    const avg = item.units > 0 ? item.availabilityTotal / item.units : 0;
+
+    return {
+      department: item.department,
+      units: item.units,
+      averageAvailability: `${avg.toFixed(2)}%`,
+      availableUnits: item.availableUnits,
+      downUnits: item.downUnits,
+      status: avg >= 90 ? "GREEN" : avg >= 80 ? "AMBER" : "RED",
+    };
+  });
+
   const chartBars = groupedAverages.map((row) => {
     const value = Number(row.availability.replace("%", ""));
     return {
       label: row.type,
       value: `${value.toFixed(1)}%`,
-      height: `${Math.max(value, 8)}%`,
+      height: `${Math.max(value, 12)}%`,
     };
   });
 
@@ -486,7 +536,7 @@ export default function MachineAvailabilityPage() {
 
         <div className="upload-grid">
           <div className="upload-main">
-            <label className="upload-label">Upload CSV workbook</label>
+            <label className="upload-label">Upload spreadsheet CSV from Excel</label>
             <input
               className="upload-input"
               type="file"
@@ -509,8 +559,8 @@ export default function MachineAvailabilityPage() {
         </div>
 
         <div className="info-strip">
-          Upload a CSV file or manage machines directly in the app. Add, edit,
-          search, export, print, and save browser data without losing the prototype look.
+          Save your Excel sheet as CSV, then upload it here. The loaded spreadsheet
+          data will show in the bottom section as a full register table.
         </div>
 
         {message ? (
@@ -535,8 +585,8 @@ export default function MachineAvailabilityPage() {
           <div className="panel-title-wrap">
             <h2>Grouped Machine Type Averages</h2>
             <p>
-              Same machine types grouped together, including Light Vehicles.
-              Major repair units are excluded.
+              Same machine types grouped together, including all current machine
+              types loaded in the register.
             </p>
           </div>
 
@@ -591,19 +641,27 @@ export default function MachineAvailabilityPage() {
           <div className="availability-panel">
             <div className="panel-title-wrap">
               <h2>Monthly Trends</h2>
-              <p>Type averages from current saved dataset</p>
+              <p>All machine types from current saved dataset</p>
             </div>
 
-            <div className="bar-chart">
-              {chartBars.map((bar) => (
-                <div className="bar-item" key={bar.label}>
-                  <span className="bar-value">{bar.value}</span>
-                  <div className="bar-track">
-                    <div className="bar-fill" style={{ height: bar.height }} />
+            <div style={{ overflowX: "auto", paddingBottom: "6px" }}>
+              <div
+                className="bar-chart"
+                style={{
+                  gridTemplateColumns: `repeat(${Math.max(chartBars.length, 5)}, minmax(72px, 1fr))`,
+                  minWidth: `${Math.max(chartBars.length, 5) * 88}px`,
+                }}
+              >
+                {chartBars.map((bar) => (
+                  <div className="bar-item" key={bar.label}>
+                    <span className="bar-value">{bar.value}</span>
+                    <div className="bar-track">
+                      <div className="bar-fill" style={{ height: bar.height }} />
+                    </div>
+                    <span className="bar-label">{bar.label}</span>
                   </div>
-                  <span className="bar-label">{bar.label}</span>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
 
@@ -615,7 +673,10 @@ export default function MachineAvailabilityPage() {
             <div className="report-grid">
               <div className="report-field">
                 <label>Report type</label>
-                <select defaultValue="Monthly">
+                <select
+                  value={reportType}
+                  onChange={(e) => setReportType(e.target.value)}
+                >
                   <option>Monthly</option>
                   <option>Weekly</option>
                   <option>Daily</option>
@@ -624,7 +685,12 @@ export default function MachineAvailabilityPage() {
 
               <div className="report-field">
                 <label>Report title / period</label>
-                <input type="text" placeholder="e.g. April 2026" />
+                <input
+                  type="text"
+                  placeholder="e.g. April 2026"
+                  value={reportTitle}
+                  onChange={(e) => setReportTitle(e.target.value)}
+                />
               </div>
             </div>
 
@@ -640,11 +706,68 @@ export default function MachineAvailabilityPage() {
         </div>
       </section>
 
+      <section className="availability-panel">
+        <div className="panel-title-wrap">
+          <h2>Department Availability</h2>
+          <p>
+            Area to sort machines into departments and view individual department
+            availability performance.
+          </p>
+        </div>
+
+        <div className="availability-table-wrap">
+          <table className="availability-table">
+            <thead>
+              <tr>
+                <th>Department</th>
+                <th>Units</th>
+                <th>Average Availability</th>
+                <th>Available Units</th>
+                <th>Down Units</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {departmentAverages.map((row) => (
+                <tr key={row.department}>
+                  <td>{row.department}</td>
+                  <td>{row.units}</td>
+                  <td>{row.averageAvailability}</td>
+                  <td>{row.availableUnits}</td>
+                  <td>{row.downUnits}</td>
+                  <td>
+                    <span
+                      className={
+                        row.status === "GREEN"
+                          ? "status-badge green"
+                          : row.status === "AMBER"
+                          ? "status-badge amber"
+                          : "status-badge red"
+                      }
+                    >
+                      {row.status}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+              {departmentAverages.length === 0 ? (
+                <tr>
+                  <td colSpan={6} style={{ textAlign: "center", padding: "20px" }}>
+                    No department data
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       <section className="availability-panel bottom-register-panel">
         <div className="panel-title-wrap">
           <h2>{editingId ? "Edit Machine" : "Add Machine"}</h2>
           <p>
-            Keep the original dashboard style, but now add or edit live machine data.
+            Add or edit machines and assign each one to a department for
+            department availability tracking.
           </p>
         </div>
 
@@ -725,8 +848,8 @@ export default function MachineAvailabilityPage() {
         <div className="panel-title-wrap">
           <h2>Bottom Machine Register</h2>
           <p>
-            Full machine list with department, status, location, availability, edit,
-            delete, and lookup search.
+            Full machine list with department, status, location, availability,
+            edit, delete, and lookup search.
           </p>
         </div>
 
@@ -804,6 +927,51 @@ export default function MachineAvailabilityPage() {
                 <tr>
                   <td colSpan={8} style={{ textAlign: "center", padding: "20px" }}>
                     No machines found
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="availability-panel">
+        <div className="panel-title-wrap">
+          <h2>Spreadsheet Data Loaded</h2>
+          <p>
+            This bottom section shows the actual data currently loaded from your
+            spreadsheet CSV or manual entries.
+          </p>
+        </div>
+
+        <div className="availability-table-wrap">
+          <table className="availability-table">
+            <thead>
+              <tr>
+                <th>Unit No</th>
+                <th>Machine Type</th>
+                <th>Department</th>
+                <th>Status</th>
+                <th>Location</th>
+                <th>Availability</th>
+              </tr>
+            </thead>
+            <tbody>
+              {machines.length > 0 ? (
+                machines.map((machine) => (
+                  <tr key={`raw-${machine.id}`}>
+                    <td>{machine.id}</td>
+                    <td>{machine.type}</td>
+                    <td>{machine.department}</td>
+                    <td>{machine.status}</td>
+                    <td>{machine.location}</td>
+                    <td>{machine.availability}</td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={6} style={{ textAlign: "center", padding: "20px" }}>
+                    No spreadsheet data loaded
                   </td>
                 </tr>
               )}
