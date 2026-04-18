@@ -1,3 +1,16 @@
+"use client";
+
+import { useMemo, useState } from "react";
+
+type Machine = {
+  id: string;
+  type: string;
+  department: string;
+  status: "AVAILABLE" | "DOWN";
+  location: string;
+  availability: string;
+};
+
 export default function MachineAvailabilityPage() {
   const summaryCards = [
     {
@@ -90,6 +103,78 @@ export default function MachineAvailabilityPage() {
     { label: "TT", value: "100.0%", height: "100%" },
     { label: "WB", value: "95.0%", height: "95%" },
   ];
+
+  const [searchTerm, setSearchTerm] = useState("");
+  const [machines, setMachines] = useState<Machine[]>([
+    {
+      id: "FEL10",
+      type: "SL60",
+      department: "Mining",
+      status: "AVAILABLE",
+      location: "Hwange",
+      availability: "96.4%",
+    },
+    {
+      id: "HT12",
+      type: "Haul Truck",
+      department: "Operations",
+      status: "AVAILABLE",
+      location: "North Pit",
+      availability: "94.8%",
+    },
+    {
+      id: "LV33",
+      type: "Light Vehicle",
+      department: "Admin",
+      status: "DOWN",
+      location: "Main Yard",
+      availability: "78.2%",
+    },
+    {
+      id: "WB05",
+      type: "Water Bowser",
+      department: "Support",
+      status: "AVAILABLE",
+      location: "Plant Area",
+      availability: "95.0%",
+    },
+    {
+      id: "TG02",
+      type: "Generator",
+      department: "Utilities",
+      status: "AVAILABLE",
+      location: "South Section",
+      availability: "100.0%",
+    },
+  ]);
+
+  const filteredMachines = useMemo(() => {
+    const term = searchTerm.toLowerCase().trim();
+
+    if (!term) return machines;
+
+    return machines.filter(
+      (machine) =>
+        machine.id.toLowerCase().includes(term) ||
+        machine.type.toLowerCase().includes(term) ||
+        machine.department.toLowerCase().includes(term) ||
+        machine.location.toLowerCase().includes(term) ||
+        machine.status.toLowerCase().includes(term)
+    );
+  }, [machines, searchTerm]);
+
+  const toggleStatus = (id: string) => {
+    setMachines((current) =>
+      current.map((machine) =>
+        machine.id === id
+          ? {
+              ...machine,
+              status: machine.status === "AVAILABLE" ? "DOWN" : "AVAILABLE",
+            }
+          : machine
+      )
+    );
+  };
 
   return (
     <div className="availability-page">
@@ -185,10 +270,7 @@ export default function MachineAvailabilityPage() {
                 <div className="bar-item" key={bar.label}>
                   <span className="bar-value">{bar.value}</span>
                   <div className="bar-track">
-                    <div
-                      className="bar-fill"
-                      style={{ height: bar.height }}
-                    />
+                    <div className="bar-fill" style={{ height: bar.height }} />
                   </div>
                   <span className="bar-label">{bar.label}</span>
                 </div>
@@ -224,82 +306,90 @@ export default function MachineAvailabilityPage() {
           </div>
         </div>
       </section>
-      <section className="availability-panel bottom-register-panel">
-  <div className="panel-title-wrap">
-    <h2>Bottom Machine Register</h2>
-    <p>
-      Full machine list with department, status, location, and latest recorded
-      availability.
-    </p>
-  </div>
 
-  <div className="availability-table-wrap">
-    <table className="availability-table">
-      <thead>
-        <tr>
-          <th>Unit No</th>
-          <th>Machine Type</th>
-          <th>Department</th>
-          <th>Status</th>
-          <th>Location</th>
-          <th>Availability</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td>FEL10</td>
-          <td>SL60</td>
-          <td>Mining</td>
-          <td>
-            <span className="status-badge green">AVAILABLE</span>
-          </td>
-          <td>Hwange</td>
-          <td>96.4%</td>
-        </tr>
-        <tr>
-          <td>HT12</td>
-          <td>Haul Truck</td>
-          <td>Operations</td>
-          <td>
-            <span className="status-badge green">AVAILABLE</span>
-          </td>
-          <td>North Pit</td>
-          <td>94.8%</td>
-        </tr>
-        <tr>
-          <td>LV33</td>
-          <td>Light Vehicle</td>
-          <td>Admin</td>
-          <td>
-            <span className="status-badge red">DOWN</span>
-          </td>
-          <td>Main Yard</td>
-          <td>78.2%</td>
-        </tr>
-        <tr>
-          <td>WB05</td>
-          <td>Water Bowser</td>
-          <td>Support</td>
-          <td>
-            <span className="status-badge green">AVAILABLE</span>
-          </td>
-          <td>Plant Area</td>
-          <td>95.0%</td>
-        </tr>
-        <tr>
-          <td>TG02</td>
-          <td>Generator</td>
-          <td>Utilities</td>
-          <td>
-            <span className="status-badge green">AVAILABLE</span>
-          </td>
-          <td>South Section</td>
-          <td>100.0%</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-</section>
+      <section className="availability-panel bottom-register-panel">
+        <div className="panel-title-wrap">
+          <h2>Bottom Machine Register</h2>
+          <p>
+            Full machine list with department, status, location, and latest
+            recorded availability.
+          </p>
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            gap: "12px",
+            alignItems: "center",
+            marginBottom: "16px",
+            flexWrap: "wrap",
+          }}
+        >
+          <input
+            type="text"
+            placeholder="Search by unit, type, department, location or status"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            style={{
+              padding: "12px 14px",
+              borderRadius: "10px",
+              border: "1px solid #2a3348",
+              minWidth: "280px",
+              width: "100%",
+              maxWidth: "420px",
+              background: "#111827",
+              color: "#ffffff",
+            }}
+          />
+        </div>
+
+        <div className="availability-table-wrap">
+          <table className="availability-table">
+            <thead>
+              <tr>
+                <th>Unit No</th>
+                <th>Machine Type</th>
+                <th>Department</th>
+                <th>Status</th>
+                <th>Location</th>
+                <th>Availability</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredMachines.length > 0 ? (
+                filteredMachines.map((machine) => (
+                  <tr key={machine.id}>
+                    <td>{machine.id}</td>
+                    <td>{machine.type}</td>
+                    <td>{machine.department}</td>
+                    <td>
+                      <button
+                        onClick={() => toggleStatus(machine.id)}
+                        className={
+                          machine.status === "AVAILABLE"
+                            ? "status-badge green"
+                            : "status-badge red"
+                        }
+                        style={{ border: "none", cursor: "pointer" }}
+                      >
+                        {machine.status}
+                      </button>
+                    </td>
+                    <td>{machine.location}</td>
+                    <td>{machine.availability}</td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={6} style={{ textAlign: "center", padding: "20px" }}>
+                    No machines found
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
     </div>
   );
 }
