@@ -1,1002 +1,533 @@
-"use client";
-
-import { useEffect, useMemo, useState } from "react";
-
-type MachineStatus = "AVAILABLE" | "DOWN";
-
-type Machine = {
-  id: string;
-  type: string;
-  department: string;
-  status: MachineStatus;
-  location: string;
-  availability: string;
-};
-
-const STORAGE_KEY = "machine_availability_prototype_final_v2";
-
-const starterMachines: Machine[] = [
-  {
-    id: "FEL10",
-    type: "SL60",
-    department: "Mining",
-    status: "AVAILABLE",
-    location: "Hwange",
-    availability: "96.4%",
-  },
-  {
-    id: "HT12",
-    type: "Haul Truck",
-    department: "Operations",
-    status: "AVAILABLE",
-    location: "North Pit",
-    availability: "94.8%",
-  },
-  {
-    id: "LV33",
-    type: "Light Vehicle",
-    department: "Admin",
-    status: "DOWN",
-    location: "Main Yard",
-    availability: "78.2%",
-  },
-  {
-    id: "WB05",
-    type: "Water Bowser",
-    department: "Support",
-    status: "AVAILABLE",
-    location: "Plant Area",
-    availability: "95.0%",
-  },
-  {
-    id: "TG02",
-    type: "Generator",
-    department: "Utilities",
-    status: "AVAILABLE",
-    location: "South Section",
-    availability: "100.0%",
-  },
-];
-
-export default function MachineAvailabilityPage() {
-  const [machines, setMachines] = useState<Machine[]>([]);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [message, setMessage] = useState("");
-  const [reportTitle, setReportTitle] = useState("April 2026");
-  const [reportType, setReportType] = useState("Monthly");
-
-  const [form, setForm] = useState({
-    id: "",
-    type: "",
-    department: "",
-    status: "AVAILABLE" as MachineStatus,
-    location: "",
-    availability: "",
-  });
-
-  useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-
-    if (saved) {
-      try {
-        setMachines(JSON.parse(saved));
-      } catch {
-        setMachines(starterMachines);
-      }
-    } else {
-      setMachines(starterMachines);
-    }
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(machines));
-  }, [machines]);
-
-  const clearForm = () => {
-    setForm({
-      id: "",
-      type: "",
-      department: "",
-      status: "AVAILABLE",
-      location: "",
-      availability: "",
-    });
-    setEditingId(null);
-  };
-
-  const saveMachine = () => {
-    if (
-      !form.id.trim() ||
-      !form.type.trim() ||
-      !form.department.trim() ||
-      !form.location.trim() ||
-      !form.availability.trim()
-    ) {
-      setMessage("Fill all fields");
-      return;
-    }
-
-    const cleanId = form.id.trim().toUpperCase();
-    const availabilityNumber = Number(form.availability.replace("%", "").trim());
-
-    if (Number.isNaN(availabilityNumber)) {
-      setMessage("Availability must be a number");
-      return;
-    }
-
-    const cleanMachine: Machine = {
-      id: cleanId,
-      type: form.type.trim(),
-      department: form.department.trim(),
-      status: form.status,
-      location: form.location.trim(),
-      availability: `${availabilityNumber}%`,
-    };
-
-    if (editingId) {
-      const duplicate = machines.some(
-        (m) => m.id !== editingId && m.id.toLowerCase() === cleanId.toLowerCase()
-      );
-
-      if (duplicate) {
-        setMessage("Unit already exists");
-        return;
-      }
-
-      setMachines((current) =>
-        current.map((m) => (m.id === editingId ? cleanMachine : m))
-      );
-      setMessage("Machine updated");
-      clearForm();
-      return;
-    }
-
-    const exists = machines.some((m) => m.id.toLowerCase() === cleanId.toLowerCase());
-
-    if (exists) {
-      setMessage("Unit already exists");
-      return;
-    }
-
-    setMachines((current) => [cleanMachine, ...current]);
-    setMessage("Machine added");
-    clearForm();
-  };
-
-  const editMachine = (machine: Machine) => {
-    setForm({
-      id: machine.id,
-      type: machine.type,
-      department: machine.department,
-      status: machine.status,
-      location: machine.location,
-      availability: machine.availability.replace("%", ""),
-    });
-    setEditingId(machine.id);
-    setMessage("Editing machine");
-  };
-
-  const deleteMachine = (id: string) => {
-    setMachines((current) => current.filter((m) => m.id !== id));
-    if (editingId === id) {
-      clearForm();
-    }
-    setMessage("Machine deleted");
-  };
-
-  const toggleStatus = (id: string) => {
-    setMachines((current) =>
-      current.map((m) =>
-        m.id === id
-          ? {
-              ...m,
-              status: m.status === "AVAILABLE" ? "DOWN" : "AVAILABLE",
-            }
-          : m
-      )
-    );
-    setMessage("Status updated");
-  };
-
-  const resetSampleData = () => {
-    setMachines(starterMachines);
-    clearForm();
-    setSearchTerm("");
-    setMessage("Reset to sample data");
-  };
-
-  const exportCsv = () => {
-    const headers = ["id,type,department,status,location,availability"];
-    const rows = machines.map(
-      (m) =>
-        `"${m.id}","${m.type}","${m.department}","${m.status}","${m.location}","${m.availability}"`
-    );
-
-    const csv = [...headers, ...rows].join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-
-    link.href = url;
-    link.download = "machine-availability.csv";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-
-    setMessage("CSV exported");
-  };
-
-  const handleCsvUpload = async (
-    event: React.ChangeEvent<HTMLInputElement>
-  ) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    try {
-      const text = await file.text();
-      const rows = text
-        .split(/\r?\n/)
-        .map((row) => row.trim())
-        .filter(Boolean);
-
-      if (rows.length < 2) {
-        setMessage("CSV file is empty");
-        return;
-      }
-
-      const parseCsvLine = (line: string) => {
-        const result: string[] = [];
-        let current = "";
-        let inQuotes = false;
-
-        for (let i = 0; i < line.length; i++) {
-          const char = line[i];
-
-          if (char === '"') {
-            inQuotes = !inQuotes;
-          } else if (char === "," && !inQuotes) {
-            result.push(current.trim());
-            current = "";
-          } else {
-            current += char;
-          }
-        }
-
-        result.push(current.trim());
-        return result.map((item) => item.replace(/^"|"$/g, ""));
-      };
-
-      const headers = parseCsvLine(rows[0]).map((h) => h.toLowerCase());
-
-      const findIndex = (names: string[]) =>
-        headers.findIndex((header) => names.includes(header));
-
-      const idIndex = findIndex(["id", "unit", "unit no", "unitno"]);
-      const typeIndex = findIndex(["type", "machine type"]);
-      const departmentIndex = findIndex(["department"]);
-      const statusIndex = findIndex(["status"]);
-      const locationIndex = findIndex(["location"]);
-      const availabilityIndex = findIndex(["availability", "availability %"]);
-
-      if (
-        idIndex === -1 ||
-        typeIndex === -1 ||
-        departmentIndex === -1 ||
-        locationIndex === -1 ||
-        availabilityIndex === -1
-      ) {
-        setMessage("CSV headers not recognised");
-        return;
-      }
-
-      const parsedMachines: Machine[] = rows
-        .slice(1)
-        .map((row) => {
-          const cols = parseCsvLine(row);
-
-          const id = (cols[idIndex] || "").toUpperCase();
-          const type = cols[typeIndex] || "";
-          const department = cols[departmentIndex] || "";
-          const status = ((cols[statusIndex] || "AVAILABLE").toUpperCase() === "DOWN"
-            ? "DOWN"
-            : "AVAILABLE") as MachineStatus;
-          const location = cols[locationIndex] || "";
-          const rawAvailability = (cols[availabilityIndex] || "").replace("%", "").trim();
-
-          if (!id || !type || !department || !location || !rawAvailability) {
-            return null;
-          }
-
-          const availabilityNumber = Number(rawAvailability);
-
-          return {
-            id,
-            type,
-            department,
-            status,
-            location,
-            availability: `${Number.isNaN(availabilityNumber) ? 0 : availabilityNumber}%`,
-          };
-        })
-        .filter((machine): machine is Machine => Boolean(machine));
-
-      if (parsedMachines.length === 0) {
-        setMessage("No valid rows found");
-        return;
-      }
-
-      setMachines(parsedMachines);
-      clearForm();
-      setMessage(`Loaded ${parsedMachines.length} rows from spreadsheet CSV`);
-    } catch {
-      setMessage("Spreadsheet upload failed");
-    }
-  };
-
-  const printReport = () => {
-    window.print();
-  };
-
-  const filteredMachines = useMemo(() => {
-    const t = searchTerm.toLowerCase().trim();
-
-    if (!t) return machines;
-
-    return machines.filter(
-      (m) =>
-        m.id.toLowerCase().includes(t) ||
-        m.type.toLowerCase().includes(t) ||
-        m.department.toLowerCase().includes(t) ||
-        m.location.toLowerCase().includes(t) ||
-        m.status.toLowerCase().includes(t)
-    );
-  }, [machines, searchTerm]);
-
-  const totalMachines = machines.length;
-  const availableCount = machines.filter((m) => m.status === "AVAILABLE").length;
-  const downCount = machines.filter((m) => m.status === "DOWN").length;
-
-  const averageAvailability =
-    machines.length > 0
-      ? (
-          machines.reduce((sum, machine) => {
-            const value = Number(machine.availability.replace("%", ""));
-            return sum + (Number.isNaN(value) ? 0 : value);
-          }, 0) / machines.length
-        ).toFixed(2)
-      : "0.00";
-
-  const totalRunTime = machines
-    .reduce((sum, machine) => {
-      const value = Number(machine.availability.replace("%", ""));
-      return sum + (Number.isNaN(value) ? 0 : value * 10);
-    }, 0)
-    .toFixed(2);
-
-  const totalDowntime = machines
-    .reduce((sum, machine) => {
-      const value = Number(machine.availability.replace("%", ""));
-      return sum + (100 - (Number.isNaN(value) ? 0 : value));
-    }, 0)
-    .toFixed(2);
-
-  const unitsBelow85 = machines.filter((m) => {
-    const value = Number(m.availability.replace("%", ""));
-    return !Number.isNaN(value) && value < 85;
-  }).length;
-
-  const summaryCards = [
-    {
-      title: "TOTAL MACHINES",
-      value: String(totalMachines),
-      note: "Active fleet units only",
-    },
-    {
-      title: "AVERAGE FLEET AVAILABILITY",
-      value: `${averageAvailability}%`,
-      note: "Average across active listed machines",
-    },
-    {
-      title: "TOTAL RUN TIME (HRS)",
-      value: totalRunTime,
-      note: "Calculated from current listed machines",
-    },
-    {
-      title: "TOTAL DOWNTIME (HRS)",
-      value: totalDowntime,
-      note: "Combined downtime across current list",
-    },
-    {
-      title: "UNITS BELOW 85%",
-      value: String(unitsBelow85),
-      note: "Current units below target availability",
-    },
-  ];
-
-  const groupedAverages = Object.values(
-    machines.reduce((acc, machine) => {
-      const key = machine.type.toUpperCase();
-      const availabilityValue = Number(machine.availability.replace("%", "")) || 0;
-
-      if (!acc[key]) {
-        acc[key] = {
-          type: key,
-          units: 0,
-          availabilityTotal: 0,
-          runTime: 0,
-          downtime: 0,
-        };
-      }
-
-      acc[key].units += 1;
-      acc[key].availabilityTotal += availabilityValue;
-      acc[key].runTime += availabilityValue * 10;
-      acc[key].downtime += 100 - availabilityValue;
-
-      return acc;
-    }, {} as Record<
-      string,
-      {
-        type: string;
-        units: number;
-        availabilityTotal: number;
-        runTime: number;
-        downtime: number;
-      }
-    >)
-  ).map((item) => {
-    const avg = item.units > 0 ? item.availabilityTotal / item.units : 0;
-
-    return {
-      type: item.type,
-      units: item.units,
-      availability: `${avg.toFixed(2)}%`,
-      runTime: item.runTime.toFixed(2),
-      downtime: item.downtime.toFixed(2),
-      status: avg >= 90 ? "GREEN" : avg >= 80 ? "AMBER" : "RED",
-    };
-  });
-
-  const departmentAverages = Object.values(
-    machines.reduce((acc, machine) => {
-      const key = machine.department.toUpperCase();
-      const availabilityValue = Number(machine.availability.replace("%", "")) || 0;
-
-      if (!acc[key]) {
-        acc[key] = {
-          department: key,
-          units: 0,
-          availabilityTotal: 0,
-          availableUnits: 0,
-          downUnits: 0,
-        };
-      }
-
-      acc[key].units += 1;
-      acc[key].availabilityTotal += availabilityValue;
-
-      if (machine.status === "AVAILABLE") {
-        acc[key].availableUnits += 1;
-      } else {
-        acc[key].downUnits += 1;
-      }
-
-      return acc;
-    }, {} as Record<
-      string,
-      {
-        department: string;
-        units: number;
-        availabilityTotal: number;
-        availableUnits: number;
-        downUnits: number;
-      }
-    >)
-  ).map((item) => {
-    const avg = item.units > 0 ? item.availabilityTotal / item.units : 0;
-
-    return {
-      department: item.department,
-      units: item.units,
-      averageAvailability: `${avg.toFixed(2)}%`,
-      availableUnits: item.availableUnits,
-      downUnits: item.downUnits,
-      status: avg >= 90 ? "GREEN" : avg >= 80 ? "AMBER" : "RED",
-    };
-  });
-
-  const chartBars = groupedAverages.map((row) => {
-    const value = Number(row.availability.replace("%", ""));
-    return {
-      label: row.type,
-      value: `${value.toFixed(1)}%`,
-      height: `${Math.max(value, 12)}%`,
-    };
-  });
+export const dynamic = 'force-dynamic'
+
+import { createClient } from '@supabase/supabase-js'
+
+type MachineRow = {
+  id: string
+  name: string
+  model: string
+  status: string
+  location: string
+  created_at?: string
+}
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
+
+function statusClass(status: string) {
+  const s = (status || '').toLowerCase()
+  if (s.includes('avail')) return 'green'
+  if (s.includes('repair') || s.includes('down') || s.includes('break')) return 'red'
+  return 'amber'
+}
+
+export default async function Page() {
+  const { data, error } = await supabase
+    .from('machines')
+    .select('*')
+    .order('created_at', { ascending: false })
+
+  const machines: MachineRow[] = data || []
+
+  const total = machines.length
+  const available = machines.filter((m) =>
+    (m.status || '').toLowerCase().includes('avail')
+  ).length
+  const repairs = machines.filter((m) => {
+    const s = (m.status || '').toLowerCase()
+    return s.includes('repair') || s.includes('down') || s.includes('break')
+  }).length
+  const locations = new Set(machines.map((m) => m.location).filter(Boolean)).size
 
   return (
-    <div className="availability-page">
+    <main className="tePage">
       <style>{`
-        @media print {
-          input, select, button {
-            display: none !important;
-          }
-          body {
-            background: white !important;
-          }
+        :root{
+          --navy:#123c73;
+          --navy2:#1d4d8e;
+          --grey:#eef3f8;
+          --line:#cad6e5;
+          --text:#18314d;
+          --green:#16803c;
+          --amber:#b7791f;
+          --red:#c0392b;
+          --card:#ffffff;
+        }
+
+        *{box-sizing:border-box}
+        body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#f3f7fc;color:var(--text)}
+        .tePage{background:#f3f7fc;min-height:100vh;color:var(--text)}
+
+        .teHeader{
+          background:var(--navy);
+          color:#fff;
+          padding:10px 18px 14px;
+          position:sticky;
+          top:0;
+          z-index:10;
+          border-bottom:4px solid #0d2e57;
+        }
+
+        .headerInner{
+          display:grid;
+          grid-template-columns:minmax(260px,360px) 1fr auto;
+          align-items:center;
+          gap:20px;
+        }
+
+        .logoWrap{display:flex;align-items:center;justify-content:flex-start}
+        .logoChip{
+          display:flex;
+          align-items:center;
+          justify-content:center;
+          background:#fff;
+          border-radius:18px;
+          padding:10px 18px;
+          min-height:72px;
+          min-width:320px;
+          box-shadow:0 2px 0 rgba(0,0,0,.1);
+          color:var(--navy);
+          font-weight:900;
+          font-size:28px;
+          letter-spacing:.5px;
+        }
+
+        .titleBlock{text-align:center;justify-self:center}
+        .titleBlock h1{margin:0;font-size:28px;line-height:1.15;color:#fff}
+        .sub{font-size:13px;opacity:.92;margin-top:6px}
+
+        .topBtns{
+          display:flex;
+          gap:10px;
+          align-items:center;
+          flex-wrap:wrap;
+          justify-content:flex-end;
+        }
+
+        .btn{
+          background:var(--navy);
+          color:#fff;
+          border:none;
+          border-radius:12px;
+          padding:11px 16px;
+          font-weight:800;
+          cursor:pointer;
+        }
+
+        .btn.secondary{
+          background:#fff;
+          color:var(--navy);
+          border:2px solid #b8c7db;
+        }
+
+        .btn.small{
+          padding:10px 14px;
+          border-radius:999px;
+          font-size:12px;
+          white-space:nowrap;
+        }
+
+        .wrap{
+          max-width:1560px;
+          margin:18px auto;
+          padding:0 14px 30px;
+        }
+
+        .card{
+          background:var(--card);
+          border:1px solid var(--line);
+          border-radius:20px;
+          padding:18px;
+          box-shadow:0 1px 0 rgba(17,53,97,.04);
+        }
+
+        .row{display:grid;gap:16px}
+        .row2{grid-template-columns:1.1fr .9fr}
+        .row3{grid-template-columns:1fr 1fr 1fr}
+        .row4{grid-template-columns:repeat(4,1fr)}
+
+        .sectionTitle{
+          font-size:18px;
+          font-weight:900;
+          color:var(--navy);
+          margin:0 0 8px;
+        }
+
+        .muted{font-size:13px;color:#6d7f96}
+        .banner{
+          background:#eaf2fc;
+          border:1px solid #c7d8ef;
+          border-radius:14px;
+          padding:12px 14px;
+          color:#35597e;
+          font-size:13px;
+        }
+
+        .kpi .label{
+          font-size:12px;
+          font-weight:800;
+          color:#5a7391;
+        }
+
+        .kpi .value{
+          font-size:26px;
+          font-weight:900;
+          color:var(--navy);
+          margin-top:8px;
+        }
+
+        .kpi .help{
+          font-size:12px;
+          color:#6c829d;
+          margin-top:6px;
+        }
+
+        .chartBox{
+          height:250px;
+          border:1px solid var(--line);
+          border-radius:16px;
+          padding:12px;
+          overflow:auto;
+          background:#fff;
+        }
+
+        .chartPlaceholder{
+          height:100%;
+          display:flex;
+          align-items:center;
+          justify-content:center;
+          color:#6d7f96;
+          font-weight:700;
+          background:linear-gradient(180deg,#f8fbff,#edf4fb);
+          border-radius:12px;
+          border:1px dashed #c7d8ef;
+        }
+
+        .tableWrap{
+          max-height:410px;
+          overflow:auto;
+          border:1px solid var(--line);
+          border-radius:14px;
+          background:#fff;
+        }
+
+        table{width:100%;border-collapse:collapse}
+        th,td{
+          padding:12px 10px;
+          border-bottom:1px solid #e6edf5;
+          text-align:left;
+          font-size:14px;
+          vertical-align:top;
+        }
+
+        th{
+          background:#eef4fb;
+          position:sticky;
+          top:0;
+          z-index:1;
+          color:#234870;
+        }
+
+        .badge{
+          display:inline-block;
+          padding:7px 12px;
+          border-radius:999px;
+          color:#fff;
+          font-weight:800;
+          font-size:12px;
+        }
+
+        .green{background:var(--green)}
+        .amber{background:var(--amber)}
+        .red{background:var(--red)}
+
+        .noteItem{
+          border:1px solid var(--line);
+          border-radius:12px;
+          padding:10px 12px;
+          margin-bottom:8px;
+          background:#fafcff;
+        }
+
+        .errorBox{
+          margin-bottom:16px;
+          background:#fff2f2;
+          border:1px solid #f0c6c6;
+          color:#9d2f2f;
+          border-radius:14px;
+          padding:12px 14px;
+          font-size:14px;
+          font-weight:700;
+        }
+
+        @media (max-width:1150px){
+          .headerInner{grid-template-columns:1fr;gap:12px}
+          .logoWrap{justify-content:center}
+          .titleBlock{text-align:center}
+          .topBtns{justify-content:center}
+          .row2,.row3,.row4{grid-template-columns:1fr}
+          .logoChip{min-width:auto;width:100%}
+        }
+
+        @media (max-width:700px){
+          .logoChip{min-height:62px;font-size:22px}
+          .titleBlock h1{font-size:22px}
+          .btn.small{padding:8px 11px;font-size:11px}
         }
       `}</style>
 
-      <section className="upload-panel">
-        <div className="section-heading">
-          <h2>Admin Upload and Save</h2>
-        </div>
-
-        <div className="upload-grid">
-          <div className="upload-main">
-            <label className="upload-label">Upload spreadsheet CSV from Excel</label>
-            <input
-              className="upload-input"
-              type="file"
-              accept=".csv"
-              onChange={handleCsvUpload}
-            />
+      <header className="teHeader">
+        <div className="headerInner">
+          <div className="logoWrap">
+            <div className="logoChip">TURBO ENERGY</div>
           </div>
 
-          <div className="upload-actions">
-            <button className="primary-btn" onClick={exportCsv}>
-              Export CSV
-            </button>
-            <button className="secondary-btn" onClick={resetSampleData}>
-              Reset to sample data
-            </button>
-            <button className="secondary-btn" onClick={printReport}>
-              Print report
-            </button>
+          <div className="titleBlock">
+            <h1>Turbo-Energy Machine Availability</h1>
+            <div className="sub">
+              Live fleet dashboard shell connected to Supabase
+            </div>
+          </div>
+
+          <div className="topBtns">
+            <button className="btn small secondary">Upload File</button>
+            <button className="btn small secondary">Units Below 85%</button>
+            <button className="btn small">Bottom Register</button>
           </div>
         </div>
+      </header>
 
-        <div className="info-strip">
-          Save your Excel sheet as CSV, then upload it here. The loaded spreadsheet
-          data will show in the bottom section as a full register table.
+      <div className="wrap">
+        {error && (
+          <div className="errorBox">
+            Database error: {error.message}
+          </div>
+        )}
+
+        <div className="row row4">
+          <div className="card kpi">
+            <div className="label">TOTAL MACHINES</div>
+            <div className="value">{total}</div>
+            <div className="help">All units currently in the register</div>
+          </div>
+
+          <div className="card kpi">
+            <div className="label">AVAILABLE</div>
+            <div className="value">{available}</div>
+            <div className="help">Units marked available</div>
+          </div>
+
+          <div className="card kpi">
+            <div className="label">REPAIRS / DOWN</div>
+            <div className="value">{repairs}</div>
+            <div className="help">Units needing attention</div>
+          </div>
+
+          <div className="card kpi">
+            <div className="label">LOCATIONS</div>
+            <div className="value">{locations}</div>
+            <div className="help">Distinct operating locations</div>
+          </div>
         </div>
 
-        {message ? (
-          <div style={{ marginTop: "12px", color: "#184785", fontWeight: 600 }}>
-            {message}
-          </div>
-        ) : null}
-      </section>
-
-      <section className="availability-summary-grid">
-        {summaryCards.map((card) => (
-          <div className="availability-summary-card" key={card.title}>
-            <span className="availability-card-title">{card.title}</span>
-            <strong className="availability-card-value">{card.value}</strong>
-            <p className="availability-card-note">{card.note}</p>
-          </div>
-        ))}
-      </section>
-
-      <section className="availability-main-grid">
-        <div className="availability-panel large-panel">
-          <div className="panel-title-wrap">
-            <h2>Grouped Machine Type Averages</h2>
-            <p>
-              Same machine types grouped together, including all current machine
-              types loaded in the register.
-            </p>
+        <div className="row row2" style={{ marginTop: 16 }}>
+          <div className="card">
+            <div className="sectionTitle">Availability Trend / Summary Chart</div>
+            <div className="muted">
+              Shell section ready. We’ll wire the real chart next.
+            </div>
+            <div className="chartBox" style={{ marginTop: 12 }}>
+              <div className="chartPlaceholder">Chart area</div>
+            </div>
           </div>
 
-          <div className="availability-table-wrap">
-            <table className="availability-table">
+          <div className="card">
+            <div className="sectionTitle">Notes / Summary Panel</div>
+            <div className="muted">
+              Same right-hand dashboard panel style as your design shell.
+            </div>
+
+            <div style={{ marginTop: 12 }}>
+              <div className="noteItem">
+                <strong>Live data connected</strong>
+                <div className="muted" style={{ marginTop: 6 }}>
+                  The dashboard is now reading machines from Supabase.
+                </div>
+              </div>
+
+              <div className="noteItem">
+                <strong>Next step</strong>
+                <div className="muted" style={{ marginTop: 6 }}>
+                  We can now style filters, charts, and admin actions.
+                </div>
+              </div>
+
+              <div className="banner" style={{ marginTop: 10 }}>
+                This is the shell pass first: header, KPI row, chart panel,
+                notes panel, summary table, and bottom register.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="row row2" style={{ marginTop: 16 }}>
+          <div className="card">
+            <div className="sectionTitle">Top Machine Summary</div>
+            <div className="muted">
+              Quick summary table in the same dashboard style.
+            </div>
+
+            <div className="tableWrap" style={{ marginTop: 12 }}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Fleet Number</th>
+                    <th>Type</th>
+                    <th>Status</th>
+                    <th>Location</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {machines.length === 0 ? (
+                    <tr>
+                      <td colSpan={4}>No machines yet</td>
+                    </tr>
+                  ) : (
+                    machines.slice(0, 8).map((m) => (
+                      <tr key={m.id}>
+                        <td>{m.name}</td>
+                        <td>{m.model}</td>
+                        <td>
+                          <span className={`badge ${statusClass(m.status)}`}>
+                            {m.status || 'Unknown'}
+                          </span>
+                        </td>
+                        <td>{m.location || '-'}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="sectionTitle">Bottom Machine-by-Machine Register</div>
+            <div className="muted">
+              This keeps the shell section you asked to bring back.
+            </div>
+
+            <div className="banner" style={{ marginTop: 12 }}>
+              Scroll down to the full bottom register. This top summary mirrors
+              the live dataset with machine visibility.
+            </div>
+
+            <div className="tableWrap" style={{ marginTop: 12, maxHeight: 390 }}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Fleet Number</th>
+                    <th>Type</th>
+                    <th>Status</th>
+                    <th>Location</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {machines.length === 0 ? (
+                    <tr>
+                      <td colSpan={4}>No machines yet</td>
+                    </tr>
+                  ) : (
+                    machines.map((m) => (
+                      <tr key={`mini-${m.id}`}>
+                        <td>{m.name}</td>
+                        <td>{m.model}</td>
+                        <td>
+                          <span className={`badge ${statusClass(m.status)}`}>
+                            {m.status || 'Unknown'}
+                          </span>
+                        </td>
+                        <td>{m.location || '-'}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div className="card" style={{ marginTop: 16 }}>
+          <div className="sectionTitle">Bottom Machine Detail Register</div>
+          <div className="muted">
+            Every machine, active or major repairs, with current location and status.
+          </div>
+
+          <div
+            className="row"
+            style={{ gridTemplateColumns: '220px 220px 1fr', marginTop: 12 }}
+          >
+            <div>
+              <label className="muted">Show</label>
+              <select defaultValue="all">
+                <option value="active">Active fleet only</option>
+                <option value="repairs">Long term rebuild and repairs only</option>
+                <option value="all">All machines</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="muted">Quick machine search</label>
+              <input placeholder="Type fleet number or type" />
+            </div>
+
+            <div className="banner" style={{ alignSelf: 'end' }}>
+              Next pass: wire filters, search, popups, and chart behavior.
+            </div>
+          </div>
+
+          <div className="tableWrap" style={{ marginTop: 14, maxHeight: 560 }}>
+            <table>
               <thead>
                 <tr>
+                  <th>Fleet Number</th>
                   <th>Machine Type</th>
-                  <th>Units</th>
-                  <th>Average Availability</th>
-                  <th>Total Run Time</th>
-                  <th>Total Downtime</th>
                   <th>Status</th>
+                  <th>Location</th>
+                  <th>Created</th>
                 </tr>
               </thead>
               <tbody>
-                {groupedAverages.map((row) => (
-                  <tr key={row.type}>
-                    <td>{row.type}</td>
-                    <td>{row.units}</td>
-                    <td>{row.availability}</td>
-                    <td>{row.runTime}</td>
-                    <td>{row.downtime}</td>
-                    <td>
-                      <span
-                        className={
-                          row.status === "GREEN"
-                            ? "status-badge green"
-                            : row.status === "AMBER"
-                            ? "status-badge amber"
-                            : "status-badge red"
-                        }
-                      >
-                        {row.status}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-                {groupedAverages.length === 0 ? (
+                {machines.length === 0 ? (
                   <tr>
-                    <td colSpan={6} style={{ textAlign: "center", padding: "20px" }}>
-                      No machine type data
-                    </td>
+                    <td colSpan={5}>No machines yet</td>
                   </tr>
-                ) : null}
+                ) : (
+                  machines.map((m) => (
+                    <tr key={`full-${m.id}`}>
+                      <td><strong>{m.name}</strong></td>
+                      <td>{m.model}</td>
+                      <td>
+                        <span className={`badge ${statusClass(m.status)}`}>
+                          {m.status || 'Unknown'}
+                        </span>
+                      </td>
+                      <td>{m.location || '-'}</td>
+                      <td>
+                        {m.created_at
+                          ? new Date(m.created_at).toLocaleDateString()
+                          : '-'}
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
         </div>
-
-        <div className="availability-side-column">
-          <div className="availability-panel">
-            <div className="panel-title-wrap">
-              <h2>Monthly Trends</h2>
-              <p>All machine types from current saved dataset</p>
-            </div>
-
-            <div style={{ overflowX: "auto", paddingBottom: "6px" }}>
-              <div
-                className="bar-chart"
-                style={{
-                  gridTemplateColumns: `repeat(${Math.max(chartBars.length, 5)}, minmax(72px, 1fr))`,
-                  minWidth: `${Math.max(chartBars.length, 5) * 88}px`,
-                }}
-              >
-                {chartBars.map((bar) => (
-                  <div className="bar-item" key={bar.label}>
-                    <span className="bar-value">{bar.value}</span>
-                    <div className="bar-track">
-                      <div className="bar-fill" style={{ height: bar.height }} />
-                    </div>
-                    <span className="bar-label">{bar.label}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="availability-panel">
-            <div className="panel-title-wrap">
-              <h2>Report Tools</h2>
-            </div>
-
-            <div className="report-grid">
-              <div className="report-field">
-                <label>Report type</label>
-                <select
-                  value={reportType}
-                  onChange={(e) => setReportType(e.target.value)}
-                >
-                  <option>Monthly</option>
-                  <option>Weekly</option>
-                  <option>Daily</option>
-                </select>
-              </div>
-
-              <div className="report-field">
-                <label>Report title / period</label>
-                <input
-                  type="text"
-                  placeholder="e.g. April 2026"
-                  value={reportTitle}
-                  onChange={(e) => setReportTitle(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className="report-actions">
-              <button className="primary-btn" onClick={printReport}>
-                Generate report
-              </button>
-              <button className="secondary-btn" onClick={exportCsv}>
-                Download CSV
-              </button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="availability-panel">
-        <div className="panel-title-wrap">
-          <h2>Department Availability</h2>
-          <p>
-            Area to sort machines into departments and view individual department
-            availability performance.
-          </p>
-        </div>
-
-        <div className="availability-table-wrap">
-          <table className="availability-table">
-            <thead>
-              <tr>
-                <th>Department</th>
-                <th>Units</th>
-                <th>Average Availability</th>
-                <th>Available Units</th>
-                <th>Down Units</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {departmentAverages.map((row) => (
-                <tr key={row.department}>
-                  <td>{row.department}</td>
-                  <td>{row.units}</td>
-                  <td>{row.averageAvailability}</td>
-                  <td>{row.availableUnits}</td>
-                  <td>{row.downUnits}</td>
-                  <td>
-                    <span
-                      className={
-                        row.status === "GREEN"
-                          ? "status-badge green"
-                          : row.status === "AMBER"
-                          ? "status-badge amber"
-                          : "status-badge red"
-                      }
-                    >
-                      {row.status}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-              {departmentAverages.length === 0 ? (
-                <tr>
-                  <td colSpan={6} style={{ textAlign: "center", padding: "20px" }}>
-                    No department data
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section className="availability-panel bottom-register-panel">
-        <div className="panel-title-wrap">
-          <h2>{editingId ? "Edit Machine" : "Add Machine"}</h2>
-          <p>
-            Add or edit machines and assign each one to a department for
-            department availability tracking.
-          </p>
-        </div>
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-            gap: "12px",
-            marginBottom: "16px",
-          }}
-        >
-          <input
-            type="text"
-            placeholder="Unit No"
-            value={form.id}
-            onChange={(e) => setForm({ ...form, id: e.target.value })}
-            style={fieldStyle}
-          />
-          <input
-            type="text"
-            placeholder="Machine Type"
-            value={form.type}
-            onChange={(e) => setForm({ ...form, type: e.target.value })}
-            style={fieldStyle}
-          />
-          <input
-            type="text"
-            placeholder="Department"
-            value={form.department}
-            onChange={(e) => setForm({ ...form, department: e.target.value })}
-            style={fieldStyle}
-          />
-          <select
-            value={form.status}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                status: e.target.value as MachineStatus,
-              })
-            }
-            style={fieldStyle}
-          >
-            <option value="AVAILABLE">AVAILABLE</option>
-            <option value="DOWN">DOWN</option>
-          </select>
-          <input
-            type="text"
-            placeholder="Location"
-            value={form.location}
-            onChange={(e) => setForm({ ...form, location: e.target.value })}
-            style={fieldStyle}
-          />
-          <input
-            type="text"
-            placeholder="Availability %"
-            value={form.availability}
-            onChange={(e) => setForm({ ...form, availability: e.target.value })}
-            style={fieldStyle}
-          />
-        </div>
-
-        <div
-          style={{
-            display: "flex",
-            gap: "12px",
-            flexWrap: "wrap",
-            marginBottom: "18px",
-          }}
-        >
-          <button className="primary-btn" onClick={saveMachine}>
-            {editingId ? "Update Machine" : "Add Machine"}
-          </button>
-          <button className="secondary-btn" onClick={clearForm}>
-            Clear
-          </button>
-        </div>
-
-        <div className="panel-title-wrap">
-          <h2>Bottom Machine Register</h2>
-          <p>
-            Full machine list with department, status, location, availability,
-            edit, delete, and lookup search.
-          </p>
-        </div>
-
-        <div style={{ marginBottom: "16px" }}>
-          <input
-            type="text"
-            placeholder="Search by unit, type, department, location or status"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            style={{
-              ...fieldStyle,
-              width: "100%",
-              maxWidth: "480px",
-            }}
-          />
-        </div>
-
-        <div className="availability-table-wrap">
-          <table className="availability-table">
-            <thead>
-              <tr>
-                <th>Unit No</th>
-                <th>Machine Type</th>
-                <th>Department</th>
-                <th>Status</th>
-                <th>Location</th>
-                <th>Availability</th>
-                <th>Edit</th>
-                <th>Delete</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredMachines.length > 0 ? (
-                filteredMachines.map((machine) => (
-                  <tr key={machine.id}>
-                    <td>{machine.id}</td>
-                    <td>{machine.type}</td>
-                    <td>{machine.department}</td>
-                    <td>
-                      <button
-                        onClick={() => toggleStatus(machine.id)}
-                        className={
-                          machine.status === "AVAILABLE"
-                            ? "status-badge green"
-                            : "status-badge red"
-                        }
-                        style={statusButtonStyle}
-                      >
-                        {machine.status}
-                      </button>
-                    </td>
-                    <td>{machine.location}</td>
-                    <td>{machine.availability}</td>
-                    <td>
-                      <button
-                        className="secondary-btn"
-                        onClick={() => editMachine(machine)}
-                        style={smallButtonStyle}
-                      >
-                        Edit
-                      </button>
-                    </td>
-                    <td>
-                      <button
-                        className="secondary-btn"
-                        onClick={() => deleteMachine(machine.id)}
-                        style={smallButtonStyle}
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={8} style={{ textAlign: "center", padding: "20px" }}>
-                    No machines found
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section className="availability-panel">
-        <div className="panel-title-wrap">
-          <h2>Spreadsheet Data Loaded</h2>
-          <p>
-            This bottom section shows the actual data currently loaded from your
-            spreadsheet CSV or manual entries.
-          </p>
-        </div>
-
-        <div className="availability-table-wrap">
-          <table className="availability-table">
-            <thead>
-              <tr>
-                <th>Unit No</th>
-                <th>Machine Type</th>
-                <th>Department</th>
-                <th>Status</th>
-                <th>Location</th>
-                <th>Availability</th>
-              </tr>
-            </thead>
-            <tbody>
-              {machines.length > 0 ? (
-                machines.map((machine) => (
-                  <tr key={`raw-${machine.id}`}>
-                    <td>{machine.id}</td>
-                    <td>{machine.type}</td>
-                    <td>{machine.department}</td>
-                    <td>{machine.status}</td>
-                    <td>{machine.location}</td>
-                    <td>{machine.availability}</td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={6} style={{ textAlign: "center", padding: "20px" }}>
-                    No spreadsheet data loaded
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
-    </div>
-  );
+      </div>
+    </main>
+  )
 }
-
-const fieldStyle: React.CSSProperties = {
-  padding: "12px 14px",
-  borderRadius: "12px",
-  border: "1px solid #c7d3e4",
-  background: "#ffffff",
-  color: "#173f78",
-  fontSize: "14px",
-};
-
-const statusButtonStyle: React.CSSProperties = {
-  border: "none",
-  cursor: "pointer",
-};
-
-const smallButtonStyle: React.CSSProperties = {
-  padding: "8px 12px",
-};
