@@ -32,7 +32,7 @@ const sampleData: Machine[] = [
   { fleet: "TDC01", type: "TDC", machineType: "Service Truck", status: "Available", location: "Hwange", department: "Plant", availability: 86, updated: "18 Apr 2026", majorRepair: false, repairReason: "", sparesEta: "" },
   { fleet: "GEN02", type: "GEN", machineType: "WTS000", status: "Available", location: "Hwange", department: "Plant", availability: 67, updated: "18 Apr 2026", majorRepair: false, repairReason: "", sparesEta: "" },
   { fleet: "WB01", type: "WB", machineType: "Water Bowser", status: "Major Repair", location: "Kariba", department: "Mining", availability: 71, updated: "18 Apr 2026", majorRepair: true, repairReason: "Transmission parts", sparesEta: "30 Apr 2026" },
-  { fleet: "LV01", type: "LDV", machineType: "Light Vehicle", status: "Available", location: "Hwange", department: "Logistics", availability: 92, updated: "19 Apr 2026", majorRepair: false, repairReason: "", sparesEta: "" }
+  { fleet: "AFE 5504", type: "LDV", machineType: "Light Vehicle", status: "Available", location: "Hwange", department: "Logistics", availability: 92, updated: "19 Apr 2026", majorRepair: false, repairReason: "", sparesEta: "" }
 ];
 
 const departments = ["Plant", "Mining", "Logistics", "Admin", "Workshop"];
@@ -48,22 +48,29 @@ export default function Page() {
 
   useEffect(() => {
     const stored = localStorage.getItem("turboMachineData");
+
     if (stored) {
       try {
-        setMachines(JSON.parse(stored));
+        const parsed = JSON.parse(stored) as Machine[];
+        const normalized = parsed.map(normalizeLoadedMachine);
+        setMachines(normalized);
+        localStorage.setItem("turboMachineData", JSON.stringify(normalized));
       } catch {
-        setMachines(sampleData);
-        localStorage.setItem("turboMachineData", JSON.stringify(sampleData));
+        const normalizedSample = sampleData.map(normalizeLoadedMachine);
+        setMachines(normalizedSample);
+        localStorage.setItem("turboMachineData", JSON.stringify(normalizedSample));
       }
     } else {
-      setMachines(sampleData);
-      localStorage.setItem("turboMachineData", JSON.stringify(sampleData));
+      const normalizedSample = sampleData.map(normalizeLoadedMachine);
+      setMachines(normalizedSample);
+      localStorage.setItem("turboMachineData", JSON.stringify(normalizedSample));
     }
   }, []);
 
   const saveMachines = (data: Machine[]) => {
-    setMachines(data);
-    localStorage.setItem("turboMachineData", JSON.stringify(data));
+    const normalized = data.map(normalizeLoadedMachine);
+    setMachines(normalized);
+    localStorage.setItem("turboMachineData", JSON.stringify(normalized));
   };
 
   const mainMachines = useMemo(() => machines.filter((m) => !m.majorRepair), [machines]);
@@ -75,12 +82,12 @@ export default function Page() {
   const locationCount = new Set(machines.map((m) => m.location)).size;
 
   const typeOptions = useMemo(() => {
-    return ["ALL", ...Array.from(new Set(machines.map((m) => m.type))).sort()];
+    return ["ALL", ...Array.from(new Set(machines.map((m) => normalizeTypeLabel(m.type)))).sort()];
   }, [machines]);
 
   const filteredMachines = useMemo(() => {
     return machines.filter((machine) => {
-      const matchesType = selectedType === "ALL" || machine.type === selectedType;
+      const matchesType = selectedType === "ALL" || normalizeTypeLabel(machine.type) === selectedType;
       const term = search.trim().toLowerCase();
 
       const matchesSearch =
@@ -147,7 +154,7 @@ export default function Page() {
   ) => {
     const updated = machines.map((machine) =>
       machine.fleet === fleet
-        ? { ...machine, [field]: value, updated: new Date().toLocaleDateString() }
+        ? normalizeLoadedMachine({ ...machine, [field]: value, updated: new Date().toLocaleDateString() })
         : machine
     );
     saveMachines(updated);
@@ -157,14 +164,14 @@ export default function Page() {
     const updated = machines.map((machine) => {
       if (machine.fleet !== fleet) return machine;
 
-      return {
+      return normalizeLoadedMachine({
         ...machine,
         majorRepair: enabled,
         status: enabled ? "Major Repair" : "Available",
         repairReason: enabled ? machine.repairReason : "",
         sparesEta: enabled ? machine.sparesEta : "",
         updated: new Date().toLocaleDateString()
-      };
+      });
     });
 
     saveMachines(updated);
@@ -219,7 +226,10 @@ export default function Page() {
     const stored = localStorage.getItem("turboMachineData");
     if (stored) {
       try {
-        setMachines(JSON.parse(stored));
+        const parsed = JSON.parse(stored) as Machine[];
+        const normalized = parsed.map(normalizeLoadedMachine);
+        setMachines(normalized);
+        localStorage.setItem("turboMachineData", JSON.stringify(normalized));
       } catch {
         saveMachines(sampleData);
       }
@@ -402,7 +412,7 @@ export default function Page() {
               </div>
 
               <div className="infoBox">
-                Excel upload now uses <strong>Summary</strong> first, then <strong>Summary (Excl Tyre)</strong>. Registration-style light vehicles are grouped into <strong>LDV</strong>. The chart now scrolls inside its own box and no longer stretches the whole page.
+                Excel upload now uses <strong>Summary</strong> first, then <strong>Summary (Excl Tyre)</strong>. Registration-style light vehicles are grouped into <strong>LDV</strong>. Saved local data is also normalized so old ABH / AEK / AEX type values get corrected automatically.
               </div>
             </section>
 
@@ -585,7 +595,7 @@ export default function Page() {
                 </div>
 
                 <div className="mutedCard">
-                  Light vehicle registrations are grouped into LDV and the chart stays inside its own panel.
+                  Light vehicle registrations are grouped into LDV and old saved values are corrected on load.
                 </div>
               </div>
             </section>
@@ -1626,6 +1636,25 @@ function normalizeTypeLabel(type: string) {
   return cleaned;
 }
 
+function isRegistrationStyleFleet(fleet: string) {
+  const cleaned = String(fleet || "").toUpperCase().trim();
+  return /^[A-Z]{3}\s?\d{3,4}$/.test(cleaned);
+}
+
+function normalizeLoadedMachine(machine: Machine): Machine {
+  const isRegistration = isRegistrationStyleFleet(machine.fleet);
+  const normalizedType = isRegistration
+    ? "LDV"
+    : normalizeTypeLabel(machine.type || inferTypeFromFleet(machine.fleet));
+
+  return {
+    ...machine,
+    type: normalizedType,
+    machineType: normalizedType === "LDV" ? "Light Vehicle" : (machine.machineType || machine.fleet),
+    department: machine.department || inferDepartmentFromType(normalizedType)
+  };
+}
+
 function parseCSV(text: string): Machine[] {
   const lines = text.trim().split(/\r?\n/);
   if (lines.length < 2) return [];
@@ -1696,7 +1725,7 @@ function mapSummaryRows(rows: Record<string, unknown>[]): Machine[] {
         downtime >= 359 ? "Down" :
         "Repair";
 
-      return {
+      return normalizeLoadedMachine({
         fleet,
         type: inferredType,
         machineType: inferredType === "LDV" ? "Light Vehicle" : fleet,
@@ -1708,7 +1737,7 @@ function mapSummaryRows(rows: Record<string, unknown>[]): Machine[] {
         majorRepair: false,
         repairReason: "",
         sparesEta: ""
-      } as Machine;
+      });
     })
     .filter((row): row is Machine => Boolean(row));
 }
@@ -1729,7 +1758,7 @@ function normalizeMachine(row: Record<string, string>): Machine {
   const fleet = row.fleet || row["fleet number"] || row.unit || "UNIT";
   const type = normalizeTypeLabel(row.type || inferTypeFromFleet(fleet));
 
-  return {
+  return normalizeLoadedMachine({
     fleet,
     type,
     machineType: row["machine type"] || row.model || (type === "LDV" ? "Light Vehicle" : fleet),
@@ -1741,11 +1770,15 @@ function normalizeMachine(row: Record<string, string>): Machine {
     majorRepair,
     repairReason: row.repairreason || row["repair reason"] || "",
     sparesEta: row.spareseta || row["spares eta"] || ""
-  };
+  });
 }
 
 function inferTypeFromFleet(fleet: string) {
   const cleaned = fleet.toUpperCase().trim();
+
+  if (isRegistrationStyleFleet(cleaned)) {
+    return "LDV";
+  }
 
   const knownHeavyPrefixes = [
     "FEL",
@@ -1771,21 +1804,10 @@ function inferTypeFromFleet(fleet: string) {
     }
   }
 
-  const regPattern = /^[A-Z]{3}\s?\d{3,4}$/;
-  if (regPattern.test(cleaned)) {
-    return "LDV";
-  }
-
   const lettersOnly = cleaned.match(/^[A-Z]+/);
   if (!lettersOnly) return "GEN";
 
-  const prefix = lettersOnly[0];
-
-  if (prefix.length === 3 && regPattern.test(cleaned)) {
-    return "LDV";
-  }
-
-  return prefix;
+  return lettersOnly[0];
 }
 
 function inferDepartmentFromType(type: string) {
