@@ -35,8 +35,8 @@ export default async function Page() {
   const available = machines.filter(m => getStatusColor(m.status) === "green").length
   const down = machines.filter(m => getStatusColor(m.status) === "red").length
 
+  // TYPE GROUPING
   const typeMap: any = {}
-
   machines.forEach(m => {
     const type = getType(m.name)
 
@@ -45,9 +45,20 @@ export default async function Page() {
     }
 
     typeMap[type].total++
-
     if (getStatusColor(m.status) === "green") typeMap[type].available++
     if (getStatusColor(m.status) === "red") typeMap[type].down++
+  })
+
+  // DEPARTMENT GROUPING
+  const deptMap: any = {}
+  machines.forEach(m => {
+    const dept = m.department || "Unassigned"
+
+    if (!deptMap[dept]) {
+      deptMap[dept] = []
+    }
+
+    deptMap[dept].push(m)
   })
 
   return (
@@ -68,6 +79,7 @@ export default async function Page() {
         <div className="card">Down: {down}</div>
       </div>
 
+      {/* TYPE BREAKDOWN */}
       <div className="types">
         {Object.keys(typeMap).map(type => (
           <div key={type} className="type-card">
@@ -79,14 +91,22 @@ export default async function Page() {
         ))}
       </div>
 
-      <div className="list">
-        {machines.map((m) => (
-          <div key={m.id} className="machine">
-            <div>{m.name}</div>
-            <div>{m.model}</div>
-            <div className={`status ${getStatusColor(m.status)}`}>
-              {m.status}
-            </div>
+      {/* DEPARTMENTS */}
+      <div className="departments">
+        {Object.keys(deptMap).map(dept => (
+          <div key={dept} className="department">
+            <h2>{dept}</h2>
+
+            {deptMap[dept].map((m: Machine) => (
+              <div key={m.id} className="machine">
+                <div>{m.name}</div>
+                <div>{m.model}</div>
+                <div className={`status ${getStatusColor(m.status)}`}>
+                  {m.status}
+                </div>
+              </div>
+            ))}
+
           </div>
         ))}
       </div>
