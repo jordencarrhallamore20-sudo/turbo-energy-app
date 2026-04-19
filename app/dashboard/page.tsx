@@ -7,7 +7,7 @@ type Machine = {
   name: string
   model: string
   status: string
-  department: string
+  department?: string
 }
 
 const supabase = createClient(
@@ -32,31 +32,31 @@ export default async function Page() {
   const machines: Machine[] = data || []
 
   const total = machines.length
-  const available = machines.filter(m => getStatusColor(m.status) === "green").length
-  const down = machines.filter(m => getStatusColor(m.status) === "red").length
+  const available = machines.filter(
+    (m) => getStatusColor(m.status) === "green"
+  ).length
+  const down = machines.filter(
+    (m) => getStatusColor(m.status) === "red"
+  ).length
 
-  const typeMap: any = {}
-  machines.forEach(m => {
+  const typeMap: Record<string, { total: number; available: number; down: number }> = {}
+
+  machines.forEach((m) => {
     const type = getType(m.name)
-    if (!typeMap[type]) typeMap[type] = { total: 0, available: 0, down: 0 }
-    typeMap[type].total++
-    if (getStatusColor(m.status) === "green") typeMap[type].available++
-    if (getStatusColor(m.status) === "red") typeMap[type].down++
-  })
+    if (!typeMap[type]) {
+      typeMap[type] = { total: 0, available: 0, down: 0 }
+    }
 
-  const deptMap: any = {}
-  machines.forEach(m => {
-    const dept = m.department || "Unassigned"
-    if (!deptMap[dept]) deptMap[dept] = []
-    deptMap[dept].push(m)
+    typeMap[type].total += 1
+    if (getStatusColor(m.status) === "green") typeMap[type].available += 1
+    if (getStatusColor(m.status) === "red") typeMap[type].down += 1
   })
 
   return (
     <div className="page">
-
       <div className="header">
         <div className="header-left">
-          <img src="/logo.png" className="logo" />
+          <img src="/logo.png" alt="Logo" className="logo" />
           <h1>Machine Availability</h1>
         </div>
       </div>
@@ -68,7 +68,7 @@ export default async function Page() {
       </div>
 
       <div className="types">
-        {Object.keys(typeMap).map(type => (
+        {Object.keys(typeMap).map((type) => (
           <div key={type} className="type-card">
             <h3>{type}</h3>
             <p>Total: {typeMap[type].total}</p>
@@ -78,25 +78,17 @@ export default async function Page() {
         ))}
       </div>
 
-      <div className="departments">
-        {Object.keys(deptMap).map(dept => (
-          <div key={dept} className="department">
-            <h2>{dept}</h2>
-
-            {deptMap[dept].map((m: Machine) => (
-              <div key={m.id} className="machine">
-                <div>{m.name}</div>
-                <div>{m.model}</div>
-                <div className={`status ${getStatusColor(m.status)}`}>
-                  {m.status}
-                </div>
-              </div>
-            ))}
-
+      <div className="list">
+        {machines.map((m) => (
+          <div key={m.id} className="machine">
+            <div>{m.name}</div>
+            <div>{m.model}</div>
+            <div className={`status ${getStatusColor(m.status)}`}>
+              {m.status}
+            </div>
           </div>
         ))}
       </div>
-
     </div>
   )
 }
