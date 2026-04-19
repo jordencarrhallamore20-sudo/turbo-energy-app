@@ -21,7 +21,6 @@ body {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 25px;
-  padding: 10px 0;
 }
 
 .header-left {
@@ -32,8 +31,6 @@ body {
 
 .logo {
   height: 50px;
-  width: auto;
-  object-fit: contain;
 }
 
 .upload-btn {
@@ -42,7 +39,6 @@ body {
   padding: 10px 18px;
   color: white;
   cursor: pointer;
-  font-weight: bold;
 }
 
 .stats {
@@ -71,6 +67,18 @@ body {
   text-align: center;
 }
 
+.departments {
+  margin-top: 20px;
+}
+
+.department {
+  margin-bottom: 25px;
+}
+
+.department h2 {
+  margin-bottom: 10px;
+}
+
 .machine {
   display: flex;
   justify-content: space-between;
@@ -96,5 +104,4 @@ table {
 th, td {
   padding: 12px;
   border-bottom: 1px solid #333;
-  text-align: left;
 }
