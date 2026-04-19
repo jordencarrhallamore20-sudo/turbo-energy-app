@@ -8,24 +8,28 @@ type Machine = {
   machineType: string;
   status: string;
   location: string;
+  department: string;
   availability: number;
   updated: string;
+  majorRepair: boolean;
+  repairReason: string;
+  sparesEta: string;
 };
 
 const sampleData: Machine[] = [
-  { fleet: "FEL10", type: "FEL", machineType: "SL60", status: "Available", location: "Hwange", availability: 88, updated: "19 Apr 2026" },
-  { fleet: "TEX01", type: "TEX", machineType: "TK371", status: "Repair", location: "Kariba", availability: 75, updated: "18 Apr 2026" },
-  { fleet: "TRT07", type: "TRT", machineType: "TR100", status: "Available", location: "Hwange", availability: 100, updated: "18 Apr 2026" },
-  { fleet: "HT03", type: "HT", machineType: "773E", status: "Maintenance", location: "Binga", availability: 82, updated: "17 Apr 2026" },
-  { fleet: "GEN02", type: "GEN", machineType: "WTS000", status: "Available", location: "Hwange", availability: 67, updated: "18 Apr 2026" },
-  { fleet: "FEL11", type: "FEL", machineType: "966H", status: "Available", location: "Hwange", availability: 90, updated: "18 Apr 2026" },
-  { fleet: "TEX02", type: "TEX", machineType: "EX360", status: "Repair", location: "Kariba", availability: 74, updated: "18 Apr 2026" },
-  { fleet: "TRT08", type: "TRT", machineType: "777D", status: "Available", location: "Hwange", availability: 100, updated: "18 Apr 2026" },
-  { fleet: "HT04", type: "HT", machineType: "ADT40", status: "Available", location: "Binga", availability: 84, updated: "17 Apr 2026" },
-  { fleet: "GEN03", type: "GEN", machineType: "Atlas Copco", status: "Available", location: "Harare", availability: 66, updated: "18 Apr 2026" },
-  { fleet: "LV01", type: "LV", machineType: "Light Vehicle", status: "Available", location: "Hwange", availability: 92, updated: "19 Apr 2026" },
-  { fleet: "WB01", type: "WB", machineType: "Water Bowser", status: "Repair", location: "Kariba", availability: 71, updated: "18 Apr 2026" }
+  { fleet: "FEL09", type: "FEL", machineType: "SL60", status: "Available", location: "Hwange", department: "Plant", availability: 88, updated: "19 Apr 2026", majorRepair: false, repairReason: "", sparesEta: "" },
+  { fleet: "FEL10", type: "FEL", machineType: "966H", status: "Available", location: "Hwange", department: "Plant", availability: 91, updated: "19 Apr 2026", majorRepair: false, repairReason: "", sparesEta: "" },
+  { fleet: "TEX01", type: "TEX", machineType: "TK371", status: "Repair", location: "Kariba", department: "Mining", availability: 75, updated: "18 Apr 2026", majorRepair: false, repairReason: "", sparesEta: "" },
+  { fleet: "TRT07", type: "TRT", machineType: "TR100", status: "Available", location: "Hwange", department: "Logistics", availability: 100, updated: "18 Apr 2026", majorRepair: false, repairReason: "", sparesEta: "" },
+  { fleet: "HT03", type: "HT", machineType: "773E", status: "Major Repair", location: "Binga", department: "Mining", availability: 82, updated: "17 Apr 2026", majorRepair: true, repairReason: "Engine rebuild", sparesEta: "25 Apr 2026" },
+  { fleet: "TRL01", type: "TRL", machineType: "Lowbed", status: "Available", location: "Harare", department: "Logistics", availability: 93, updated: "18 Apr 2026", majorRepair: false, repairReason: "", sparesEta: "" },
+  { fleet: "TDC01", type: "TDC", machineType: "Service Truck", status: "Available", location: "Hwange", department: "Plant", availability: 86, updated: "18 Apr 2026", majorRepair: false, repairReason: "", sparesEta: "" },
+  { fleet: "GEN02", type: "GEN", machineType: "WTS000", status: "Available", location: "Hwange", department: "Plant", availability: 67, updated: "18 Apr 2026", majorRepair: false, repairReason: "", sparesEta: "" },
+  { fleet: "WB01", type: "WB", machineType: "Water Bowser", status: "Major Repair", location: "Kariba", department: "Mining", availability: 71, updated: "18 Apr 2026", majorRepair: true, repairReason: "Transmission parts", sparesEta: "30 Apr 2026" },
+  { fleet: "LV01", type: "LV", machineType: "Light Vehicle", status: "Available", location: "Hwange", department: "Logistics", availability: 92, updated: "19 Apr 2026", majorRepair: false, repairReason: "", sparesEta: "" }
 ];
+
+const departments = ["Plant", "Mining", "Logistics", "Admin", "Workshop"];
 
 export default function Page() {
   const [machines, setMachines] = useState<Machine[]>([]);
@@ -53,29 +57,20 @@ export default function Page() {
     localStorage.setItem("turboMachineData", JSON.stringify(data));
   };
 
+  const mainMachines = useMemo(
+    () => machines.filter((m) => !m.majorRepair),
+    [machines]
+  );
+
   const totalMachines = machines.length;
-  const availableMachines = machines.filter((m) =>
+  const availableMachines = mainMachines.filter((m) =>
     m.status.toLowerCase().includes("avail")
   ).length;
-  const repairsMachines = machines.filter(
+  const repairsMachines = mainMachines.filter(
     (m) => !m.status.toLowerCase().includes("avail")
   ).length;
+  const majorRepairsMachines = machines.filter((m) => m.majorRepair).length;
   const locationCount = new Set(machines.map((m) => m.location)).size;
-
-  const groupedData = useMemo(() => {
-    const groups: Record<string, number[]> = {};
-    machines.forEach((machine) => {
-      if (!groups[machine.type]) groups[machine.type] = [];
-      groups[machine.type].push(Number(machine.availability) || 0);
-    });
-
-    return Object.entries(groups).map(([type, values]) => ({
-      type,
-      availability: Math.round(
-        values.reduce((sum, value) => sum + value, 0) / values.length
-      )
-    }));
-  }, [machines]);
 
   const typeOptions = useMemo(() => {
     return ["ALL", ...Array.from(new Set(machines.map((m) => m.type))).sort()];
@@ -91,15 +86,95 @@ export default function Page() {
         machine.type.toLowerCase().includes(term) ||
         machine.machineType.toLowerCase().includes(term) ||
         machine.status.toLowerCase().includes(term) ||
-        machine.location.toLowerCase().includes(term);
+        machine.location.toLowerCase().includes(term) ||
+        machine.department.toLowerCase().includes(term) ||
+        machine.repairReason.toLowerCase().includes(term);
 
       return matchesType && matchesSearch;
     });
   }, [machines, search, selectedType]);
 
-  const topSummary = machines.slice(0, 5);
+  const topSummary = mainMachines.slice(0, 5);
+  const majorRepairsList = useMemo(
+    () => machines.filter((m) => m.majorRepair),
+    [machines]
+  );
 
-  const under85 = machines.filter((m) => Number(m.availability) < 85).length;
+  const groupedMachineTypeData = useMemo(() => {
+    const groups: Record<string, number[]> = {};
+    mainMachines.forEach((machine) => {
+      if (!groups[machine.type]) groups[machine.type] = [];
+      groups[machine.type].push(Number(machine.availability) || 0);
+    });
+
+    return Object.entries(groups)
+      .map(([type, values]) => ({
+        type,
+        availability: Math.round(
+          values.reduce((sum, value) => sum + value, 0) / values.length
+        )
+      }))
+      .sort((a, b) => a.type.localeCompare(b.type));
+  }, [mainMachines]);
+
+  const departmentAvailability = useMemo(() => {
+    const groups: Record<string, Machine[]> = {};
+    machines.forEach((machine) => {
+      if (!groups[machine.department]) groups[machine.department] = [];
+      groups[machine.department].push(machine);
+    });
+
+    return Object.entries(groups).map(([department, items]) => {
+      const active = items.filter((m) => !m.majorRepair);
+      const available = active.filter((m) =>
+        m.status.toLowerCase().includes("avail")
+      ).length;
+
+      const percent =
+        active.length === 0 ? 0 : Math.round((available / active.length) * 100);
+
+      return {
+        department,
+        total: items.length,
+        active: active.length,
+        available,
+        percent
+      };
+    });
+  }, [machines]);
+
+  const updateMachineField = (
+    fleet: string,
+    field: keyof Machine,
+    value: string | number | boolean
+  ) => {
+    const updated = machines.map((machine) =>
+      machine.fleet === fleet
+        ? {
+            ...machine,
+            [field]: value,
+            updated: new Date().toLocaleDateString()
+          }
+        : machine
+    );
+    saveMachines(updated);
+  };
+
+  const setMajorRepair = (fleet: string, enabled: boolean) => {
+    const updated = machines.map((machine) => {
+      if (machine.fleet !== fleet) return machine;
+
+      return {
+        ...machine,
+        majorRepair: enabled,
+        status: enabled ? "Major Repair" : "Available",
+        repairReason: enabled ? machine.repairReason : "",
+        sparesEta: enabled ? machine.sparesEta : "",
+        updated: new Date().toLocaleDateString()
+      };
+    });
+    saveMachines(updated);
+  };
 
   const handleExport = () => {
     const headers = [
@@ -108,7 +183,11 @@ export default function Page() {
       "machineType",
       "status",
       "location",
+      "department",
       "availability",
+      "majorRepair",
+      "repairReason",
+      "sparesEta",
       "updated"
     ];
 
@@ -119,7 +198,11 @@ export default function Page() {
         machine.machineType,
         machine.status,
         machine.location,
+        machine.department,
         machine.availability,
+        machine.majorRepair,
+        machine.repairReason,
+        machine.sparesEta,
         machine.updated
       ].join(",")
     );
@@ -180,6 +263,13 @@ export default function Page() {
     if (el) el.scrollIntoView({ behavior: "smooth" });
   };
 
+  const showMajorRepairsOnly = () => {
+    setSelectedType("ALL");
+    setSearch("major repair");
+    const el = document.getElementById("major-repairs");
+    if (el) el.scrollIntoView({ behavior: "smooth" });
+  };
+
   return (
     <div className="page">
       <div className="shell">
@@ -190,7 +280,7 @@ export default function Page() {
 
           <div className="titleWrap">
             <h1>Turbo-Energy Machine Availability</h1>
-            <p>Live fleet dashboard connected to saved browser data</p>
+            <p>Live fleet dashboard with admin movements, departments, and major repairs</p>
           </div>
 
           <div className="topActions">
@@ -199,6 +289,9 @@ export default function Page() {
             </label>
             <button className="pillButton" onClick={showBelow85Only}>
               Units Below 85%
+            </button>
+            <button className="pillButton" onClick={showMajorRepairsOnly}>
+              Major Repairs
             </button>
             <button className="pillButton" onClick={scrollToBottomRegister}>
               Bottom Register
@@ -209,30 +302,10 @@ export default function Page() {
         <main className="dashboardGrid">
           <section className="leftColumn">
             <div className="kpiGrid">
-              <KpiCard
-                icon="🏗"
-                title="TOTAL MACHINES"
-                value={totalMachines}
-                note="All units currently in the register"
-              />
-              <KpiCard
-                icon="✅"
-                title="AVAILABLE"
-                value={availableMachines}
-                note="Units marked available"
-              />
-              <KpiCard
-                icon="🔧"
-                title="REPAIRS / DOWN"
-                value={repairsMachines}
-                note="Units needing attention"
-              />
-              <KpiCard
-                icon="📍"
-                title="LOCATIONS"
-                value={locationCount}
-                note="Distinct operating locations"
-              />
+              <KpiCard icon="🏗" title="TOTAL MACHINES" value={totalMachines} note="All units in the register" />
+              <KpiCard icon="✅" title="AVAILABLE" value={availableMachines} note="Active units marked available" />
+              <KpiCard icon="🔧" title="REPAIRS / DOWN" value={repairsMachines} note="Active units needing attention" />
+              <KpiCard icon="📍" title="LOCATIONS" value={locationCount} note="Distinct operating locations" />
             </div>
 
             <section className="panel">
@@ -267,7 +340,7 @@ export default function Page() {
               </div>
 
               <div className="infoBox">
-                Save your Excel sheet as CSV, then upload it here. The loaded spreadsheet data will show in the bottom section as a full register table.
+                Save your Excel sheet as CSV, then upload it here. Department, major repair, reason, and spares ETA can all be edited inside the app.
               </div>
             </section>
 
@@ -287,11 +360,11 @@ export default function Page() {
                 </div>
 
                 <div className="barsArea">
-                  {groupedData.map((item, index) => (
+                  {groupedMachineTypeData.map((item, index) => (
                     <div key={item.type} className="barGroup">
                       <div className="barValue">{item.availability}%</div>
                       <div
-                        className={`bar ${index === 3 ? "highlightBar" : ""}`}
+                        className={`bar ${index % 4 === 3 ? "highlightBar" : ""}`}
                         style={{ height: `${Math.max(item.availability * 1.7, 18)}px` }}
                       />
                       <div className="barLabel">{item.type}</div>
@@ -301,14 +374,98 @@ export default function Page() {
               </div>
 
               <p className="footNote">
-                Breakdown shows availability percentage for each machine type.
+                Major repair units are excluded from the machine type availability graph.
               </p>
             </section>
 
             <section className="panel">
               <div className="sectionHeading">
+                <h2>Department Availability</h2>
+                <p>Availability percentage by department with major repairs excluded.</p>
+              </div>
+
+              <div className="departmentGrid">
+                {departmentAvailability.map((item) => (
+                  <div key={item.department} className="departmentCard">
+                    <div className="departmentHead">
+                      <h3>{item.department}</h3>
+                      <span>{item.percent}%</span>
+                    </div>
+                    <div className="departmentBarTrack">
+                      <div className="departmentBarFill" style={{ width: `${item.percent}%` }} />
+                    </div>
+                    <div className="departmentMeta">
+                      <span>Total: {item.total}</span>
+                      <span>Active: {item.active}</span>
+                      <span>Available: {item.available}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section className="panel" id="major-repairs">
+              <div className="sectionHeading">
+                <h2>Machines on Major Repairs</h2>
+                <p>These units are removed from the main availability percentage.</p>
+              </div>
+
+              <div className="majorRepairSummary">
+                <div className="majorBadge">{majorRepairsMachines}</div>
+                <div>
+                  <strong>{majorRepairsMachines}</strong> unit(s) on major repair
+                </div>
+              </div>
+
+              <div className="tableWrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Fleet</th>
+                      <th>Machine</th>
+                      <th>Department</th>
+                      <th>Reason</th>
+                      <th>Spares ETA</th>
+                      <th>Status</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {majorRepairsList.length === 0 ? (
+                      <tr>
+                        <td colSpan={7}>No machines on major repair.</td>
+                      </tr>
+                    ) : (
+                      majorRepairsList.map((machine) => (
+                        <tr key={machine.fleet}>
+                          <td>{machine.fleet}</td>
+                          <td>{machine.machineType}</td>
+                          <td>{machine.department}</td>
+                          <td>{machine.repairReason || "-"}</td>
+                          <td>{machine.sparesEta || "-"}</td>
+                          <td>
+                            <span className="statusPill statusMajor">Major Repair</span>
+                          </td>
+                          <td>
+                            <button
+                              className="miniAction"
+                              onClick={() => setMajorRepair(machine.fleet, false)}
+                            >
+                              Return to main list
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section className="panel">
+              <div className="sectionHeading">
                 <h2>Top Machine Summary</h2>
-                <p>Quick summary of the latest machines.</p>
+                <p>Quick summary of active machines only.</p>
               </div>
 
               <div className="tableWrap">
@@ -328,7 +485,7 @@ export default function Page() {
                         <td>{machine.fleet}</td>
                         <td>{machine.machineType}</td>
                         <td>
-                          <span className={`statusPill ${getStatusClass(machine.status)}`}>
+                          <span className={`statusPill ${getStatusClass(machine.status, machine.majorRepair)}`}>
                             {machine.status}
                           </span>
                         </td>
@@ -352,22 +509,160 @@ export default function Page() {
                 <div className="noteCard">
                   <div className="noteIcon">🗂</div>
                   <div>
-                    <h3>Live data connected</h3>
-                    <p>Dashboard reading machines from saved browser data.</p>
+                    <h3>Main availability</h3>
+                    <p>Major repair units are automatically excluded from top KPI percentages and type graphs.</p>
                   </div>
                 </div>
 
                 <div className="noteCard">
-                  <div className="noteIcon">💡</div>
+                  <div className="noteIcon">🏢</div>
                   <div>
-                    <h3>Next step</h3>
-                    <p>Add filters, admin actions, and style refinements.</p>
+                    <h3>Department tracking</h3>
+                    <p>Machines can be allocated to Plant, Mining, Logistics, Admin, or Workshop.</p>
                   </div>
                 </div>
 
                 <div className="mutedCard">
-                  Shell pass complete: header, KPI row, chart, notes panel, summary table, and bottom register.
+                  Type graph now shows machine groups like FEL, TEX, TRT, HT, TRL, TDC and any other types in your data.
                 </div>
+              </div>
+            </section>
+
+            <section className="panel">
+              <div className="sectionHeading">
+                <h2>Admin Machine Controls</h2>
+                <p>Move machines to major repair, assign departments, and add notes.</p>
+              </div>
+
+              <div className="adminList">
+                {machines.map((machine) => (
+                  <div key={machine.fleet} className="adminCard">
+                    <div className="adminTop">
+                      <div>
+                        <strong>{machine.fleet}</strong> - {machine.machineType}
+                      </div>
+                      <span className={`statusPill ${getStatusClass(machine.status, machine.majorRepair)}`}>
+                        {machine.majorRepair ? "Major Repair" : machine.status}
+                      </span>
+                    </div>
+
+                    <div className="adminGrid">
+                      <div>
+                        <label>Department</label>
+                        <select
+                          value={machine.department}
+                          onChange={(e) =>
+                            updateMachineField(machine.fleet, "department", e.target.value)
+                          }
+                          className="selectInput"
+                        >
+                          {departments.map((dep) => (
+                            <option key={dep} value={dep}>
+                              {dep}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label>Status</label>
+                        <select
+                          value={machine.majorRepair ? "Major Repair" : machine.status}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            if (value === "Major Repair") {
+                              setMajorRepair(machine.fleet, true);
+                            } else {
+                              updateMachineField(machine.fleet, "status", value);
+                              if (machine.majorRepair) {
+                                setMajorRepair(machine.fleet, false);
+                              }
+                            }
+                          }}
+                          className="selectInput"
+                        >
+                          <option value="Available">Available</option>
+                          <option value="Repair">Repair</option>
+                          <option value="Maintenance">Maintenance</option>
+                          <option value="Down">Down</option>
+                          <option value="Major Repair">Major Repair</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label>Availability %</label>
+                        <input
+                          className="textInput"
+                          type="number"
+                          value={machine.availability}
+                          onChange={(e) =>
+                            updateMachineField(
+                              machine.fleet,
+                              "availability",
+                              Number(e.target.value || 0)
+                            )
+                          }
+                        />
+                      </div>
+
+                      <div>
+                        <label>Reason</label>
+                        <input
+                          className="textInput"
+                          type="text"
+                          value={machine.repairReason}
+                          placeholder="Reason for major repair"
+                          onChange={(e) =>
+                            updateMachineField(machine.fleet, "repairReason", e.target.value)
+                          }
+                        />
+                      </div>
+
+                      <div>
+                        <label>Spares ETA</label>
+                        <input
+                          className="textInput"
+                          type="text"
+                          value={machine.sparesEta}
+                          placeholder="e.g. 30 Apr 2026"
+                          onChange={(e) =>
+                            updateMachineField(machine.fleet, "sparesEta", e.target.value)
+                          }
+                        />
+                      </div>
+
+                      <div>
+                        <label>Location</label>
+                        <input
+                          className="textInput"
+                          type="text"
+                          value={machine.location}
+                          onChange={(e) =>
+                            updateMachineField(machine.fleet, "location", e.target.value)
+                          }
+                        />
+                      </div>
+                    </div>
+
+                    <div className="adminActions">
+                      {!machine.majorRepair ? (
+                        <button
+                          className="miniAction orangeMini"
+                          onClick={() => setMajorRepair(machine.fleet, true)}
+                        >
+                          Move to major repair
+                        </button>
+                      ) : (
+                        <button
+                          className="miniAction"
+                          onClick={() => setMajorRepair(machine.fleet, false)}
+                        >
+                          Remove from major repair
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
             </section>
 
@@ -412,6 +707,7 @@ export default function Page() {
                       <th>Fleet Number</th>
                       <th>Type</th>
                       <th>Status</th>
+                      <th>Department</th>
                       <th>Location</th>
                       <th>Updated</th>
                     </tr>
@@ -422,10 +718,11 @@ export default function Page() {
                         <td>{machine.fleet}</td>
                         <td>{machine.machineType}</td>
                         <td>
-                          <span className={`statusPill ${getStatusClass(machine.status)}`}>
-                            {machine.status}
+                          <span className={`statusPill ${getStatusClass(machine.status, machine.majorRepair)}`}>
+                            {machine.majorRepair ? "Major Repair" : machine.status}
                           </span>
                         </td>
+                        <td>{machine.department}</td>
                         <td>{machine.location}</td>
                         <td>{machine.updated}</td>
                       </tr>
@@ -457,7 +754,7 @@ export default function Page() {
         }
 
         .shell {
-          width: min(1280px, calc(100% - 24px));
+          width: min(1380px, calc(100% - 24px));
           margin: 0 auto;
           padding: 0 0 24px;
         }
@@ -536,7 +833,7 @@ export default function Page() {
 
         .dashboardGrid {
           display: grid;
-          grid-template-columns: 1.65fr 1fr;
+          grid-template-columns: 1.5fr 1fr;
           gap: 16px;
           margin-top: 14px;
         }
@@ -717,7 +1014,8 @@ export default function Page() {
           border-radius: 16px;
           padding: 20px 20px 16px 56px;
           background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.02));
-          overflow: hidden;
+          overflow-x: auto;
+          overflow-y: hidden;
         }
 
         .chartGridLines {
@@ -748,6 +1046,7 @@ export default function Page() {
 
         .barsArea {
           position: relative;
+          min-width: 620px;
           height: 270px;
           display: flex;
           justify-content: space-around;
@@ -798,6 +1097,80 @@ export default function Page() {
           margin-bottom: 12px;
         }
 
+        .departmentGrid {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 12px;
+        }
+
+        .departmentCard {
+          border: 1px solid rgba(255,255,255,0.1);
+          border-radius: 16px;
+          padding: 14px;
+          background: rgba(255,255,255,0.04);
+        }
+
+        .departmentHead {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          align-items: center;
+          margin-bottom: 10px;
+        }
+
+        .departmentHead h3 {
+          margin: 0;
+          font-size: 15px;
+        }
+
+        .departmentHead span {
+          font-size: 16px;
+          font-weight: 900;
+          color: #ffcf67;
+        }
+
+        .departmentBarTrack {
+          height: 10px;
+          border-radius: 999px;
+          background: rgba(255,255,255,0.1);
+          overflow: hidden;
+          margin-bottom: 10px;
+        }
+
+        .departmentBarFill {
+          height: 100%;
+          border-radius: 999px;
+          background: linear-gradient(90deg, #7db2ff, #4f8cff);
+        }
+
+        .departmentMeta {
+          display: flex;
+          gap: 10px;
+          flex-wrap: wrap;
+          font-size: 12px;
+          color: #cfdbf4;
+        }
+
+        .majorRepairSummary {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          margin-bottom: 12px;
+        }
+
+        .majorBadge {
+          width: 44px;
+          height: 44px;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: rgba(255, 177, 75, 0.18);
+          color: #ffcf67;
+          font-weight: 900;
+          font-size: 18px;
+        }
+
         .tableWrap {
           overflow-x: auto;
           border: 1px solid rgba(255,255,255,0.1);
@@ -808,7 +1181,7 @@ export default function Page() {
         table {
           width: 100%;
           border-collapse: collapse;
-          min-width: 660px;
+          min-width: 760px;
         }
 
         th {
@@ -850,6 +1223,11 @@ export default function Page() {
         .statusDown {
           background: rgba(201,72,96,0.18);
           color: #ff7b93;
+        }
+
+        .statusMajor {
+          background: rgba(255,177,75,0.18);
+          color: #ffcf67;
         }
 
         .notesStack {
@@ -897,23 +1275,84 @@ export default function Page() {
           line-height: 1.45;
         }
 
-        .controlsRow {
+        .adminList {
           display: flex;
-          gap: 10px;
-          flex-wrap: wrap;
+          flex-direction: column;
+          gap: 12px;
+          max-height: 760px;
+          overflow: auto;
+          padding-right: 4px;
+        }
+
+        .adminCard {
+          border: 1px solid rgba(255,255,255,0.1);
+          border-radius: 16px;
+          padding: 14px;
+          background: rgba(255,255,255,0.04);
+        }
+
+        .adminTop {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          align-items: center;
           margin-bottom: 12px;
         }
 
-        .selectInput {
-          min-width: 190px;
+        .adminGrid {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 10px;
+        }
+
+        .adminGrid label {
+          display: block;
+          font-size: 12px;
+          color: #cfdbf4;
+          margin-bottom: 6px;
+          font-weight: 700;
+        }
+
+        .selectInput,
+        .textInput {
+          width: 100%;
           border: none;
           outline: none;
           border-radius: 12px;
           padding: 12px 14px;
           font-size: 14px;
-          font-weight: 800;
+          font-weight: 700;
           color: #17325f;
           background: white;
+        }
+
+        .adminActions {
+          margin-top: 12px;
+          display: flex;
+          justify-content: flex-end;
+        }
+
+        .miniAction {
+          border: 1px solid rgba(255,255,255,0.14);
+          background: rgba(10, 23, 52, 0.5);
+          color: white;
+          border-radius: 999px;
+          padding: 10px 14px;
+          font-size: 13px;
+          font-weight: 800;
+          cursor: pointer;
+        }
+
+        .orangeMini {
+          background: linear-gradient(180deg, #ffb24c, #f29a1f);
+          border: none;
+        }
+
+        .controlsRow {
+          display: flex;
+          gap: 10px;
+          flex-wrap: wrap;
+          margin-bottom: 12px;
         }
 
         .searchWrap {
@@ -951,7 +1390,7 @@ export default function Page() {
           color: #d8e1f6;
         }
 
-        @media (max-width: 1180px) {
+        @media (max-width: 1280px) {
           .topbar {
             grid-template-columns: 1fr;
             text-align: center;
@@ -965,21 +1404,15 @@ export default function Page() {
             grid-template-columns: 1fr;
           }
 
-          .kpiGrid {
-            grid-template-columns: repeat(2, 1fr);
-          }
-
           .panelHeader {
             flex-direction: column;
           }
         }
 
-        @media (max-width: 760px) {
-          .shell {
-            width: min(100%, calc(100% - 14px));
-          }
-
-          .kpiGrid {
+        @media (max-width: 860px) {
+          .kpiGrid,
+          .departmentGrid,
+          .adminGrid {
             grid-template-columns: 1fr;
           }
 
@@ -1005,6 +1438,12 @@ export default function Page() {
 
           .barLabel {
             font-size: 12px;
+          }
+
+          .bottomLine,
+          .adminTop {
+            flex-direction: column;
+            align-items: flex-start;
           }
         }
       `}</style>
@@ -1032,10 +1471,11 @@ function KpiCard({
         <p>{note}</p>
       </div>
     </div>
-  );
+    );
 }
 
-function getStatusClass(status: string) {
+function getStatusClass(status: string, majorRepair?: boolean) {
+  if (majorRepair) return "statusMajor";
   const value = status.toLowerCase();
   if (value.includes("avail")) return "statusAvailable";
   if (value.includes("repair") || value.includes("maint")) return "statusRepair";
@@ -1058,14 +1498,22 @@ function parseCSV(text: string): Machine[] {
         row[header] = cols[index] || "";
       });
 
+      const majorRepair =
+        String(row.majorrepair || row["major repair"] || "").toLowerCase() === "true" ||
+        String(row.status || "").toLowerCase().includes("major");
+
       return {
         fleet: row.fleet || row["fleet number"] || "UNIT",
         type: row.type || "GEN",
         machineType: row["machine type"] || row.model || row.type || "Machine",
-        status: row.status || "Available",
+        status: majorRepair ? "Major Repair" : row.status || "Available",
         location: row.location || "Unknown",
+        department: row.department || "Plant",
         availability: Number(row.availability || row["availability %"] || 0),
-        updated: row.updated || new Date().toLocaleDateString()
+        updated: row.updated || new Date().toLocaleDateString(),
+        majorRepair,
+        repairReason: row.repairreason || row["repair reason"] || "",
+        sparesEta: row.spareseta || row["spares eta"] || ""
       };
     })
     .filter((row) => row.fleet && row.machineType);
