@@ -3,12 +3,10 @@
   --background: #0a192f;
   --panel: #1a1a1a;
   --text: #ffffff;
-  --muted: #bdbdbd;
 }
 
 body {
   margin: 0;
-  padding: 0;
   background: var(--background);
   color: var(--text);
   font-family: Arial, sans-serif;
@@ -19,23 +17,28 @@ body {
   padding: 20px;
 }
 
-/* TOP BAR */
-.topbar {
+/* HEADER */
+.header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: 30px;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 15px;
 }
 
 .logo {
-  font-size: 22px;
-  font-weight: bold;
+  height: 45px;
 }
 
-.btn {
+.upload-btn {
   background: var(--primary);
   border: none;
-  padding: 10px 15px;
+  padding: 10px 20px;
   color: white;
   cursor: pointer;
 }
@@ -43,53 +46,45 @@ body {
 /* STATS */
 .stats {
   display: flex;
-  gap: 10px;
+  gap: 15px;
   margin-bottom: 20px;
 }
 
 .card {
-  background: var(--panel);
-  padding: 15px;
   flex: 1;
+  background: var(--panel);
+  padding: 20px;
   text-align: center;
+  font-size: 18px;
 }
 
-/* LIST */
-.list {
-  margin-bottom: 20px;
-}
-
+/* MACHINE LIST */
 .machine {
   display: flex;
   justify-content: space-between;
   background: var(--panel);
-  padding: 10px;
-  margin-bottom: 5px;
+  padding: 12px;
+  margin-bottom: 6px;
 }
 
-/* STATUS COLORS */
-.status.green {
-  color: #2bb673;
-}
-
-.status.red {
-  color: #d94141;
-}
-
-.status.orange {
-  color: #f0b429;
-}
+/* STATUS */
+.status.green { color: #2bb673; }
+.status.red { color: #d94141; }
+.status.orange { color: #f0b429; }
 
 /* TABLE */
-.table {
+.table-container {
+  margin-top: 20px;
+}
+
+table {
   width: 100%;
   background: var(--panel);
   border-collapse: collapse;
 }
 
-.table th,
-.table td {
-  padding: 10px;
+th, td {
+  padding: 12px;
   border-bottom: 1px solid #333;
   text-align: left;
 }
