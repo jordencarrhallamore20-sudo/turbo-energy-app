@@ -17,6 +17,11 @@ type Machine = {
   sparesEta: string;
 };
 
+type WorkbookSheetData = {
+  name: string;
+  rows: Record<string, unknown>[];
+};
+
 const sampleData: Machine[] = [
   { fleet: "FEL09", type: "FEL", machineType: "SL60", status: "Available", location: "Hwange", department: "Plant", availability: 88, updated: "19 Apr 2026", majorRepair: false, repairReason: "", sparesEta: "" },
   { fleet: "FEL10", type: "FEL", machineType: "966H", status: "Available", location: "Hwange", department: "Plant", availability: 91, updated: "19 Apr 2026", majorRepair: false, repairReason: "", sparesEta: "" },
@@ -37,6 +42,9 @@ export default function Page() {
   const [selectedType, setSelectedType] = useState("ALL");
   const [search, setSearch] = useState("");
   const [fileName, setFileName] = useState("No file chosen");
+  const [sheetNames, setSheetNames] = useState<string[]>([]);
+  const [workbookSheets, setWorkbookSheets] = useState<WorkbookSheetData[]>([]);
+  const [activeSheet, setActiveSheet] = useState("");
 
   useEffect(() => {
     const stored = localStorage.getItem("turboMachineData");
@@ -220,37 +228,76 @@ export default function Page() {
 
     try {
       const lowerName = file.name.toLowerCase();
-      let parsed: Machine[] = [];
 
       if (lowerName.endsWith(".csv")) {
         const text = await file.text();
-        parsed = parseCSV(text);
-      } else if (
+        const parsed = parseCSV(text);
+        if (parsed.length > 0) {
+          saveMachines(parsed);
+          setSheetNames(["CSV"]);
+          setWorkbookSheets([{ name: "CSV", rows: [] }]);
+          setActiveSheet("CSV");
+        } else {
+          alert("CSV uploaded but no valid rows were found.");
+        }
+        return;
+      }
+
+      if (
         lowerName.endsWith(".xlsx") ||
         lowerName.endsWith(".xls") ||
         lowerName.endsWith(".xlsm")
       ) {
         const buffer = await file.arrayBuffer();
         const workbook = XLSX.read(buffer, { type: "array" });
-        const firstSheetName = workbook.SheetNames[0];
-        const firstSheet = workbook.Sheets[firstSheetName];
-        const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(firstSheet, {
-          defval: ""
+
+        const sheets: WorkbookSheetData[] = workbook.SheetNames.map((name) => {
+          const sheet = workbook.Sheets[name];
+          const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
+          return { name, rows };
         });
-        parsed = mapSpreadsheetRows(rows);
-      } else {
-        alert("Please upload .xlsx, .xls, .xlsm, or .csv");
+
+        setWorkbookSheets(sheets);
+        setSheetNames(workbook.SheetNames);
+
+        const preferredSheet =
+          sheets.find((s) => s.name === "Summary") ||
+          sheets.find((s) => s.name === "Summary (Excl Tyre)") ||
+          sheets.find((s) => isSummaryLikeSheet(s.rows)) ||
+          sheets[0];
+
+        if (!preferredSheet) {
+          alert("No usable sheets found.");
+          return;
+        }
+
+        const parsed = parseSelectedSheet(preferredSheet.name, preferredSheet.rows);
+        if (parsed.length > 0) {
+          saveMachines(parsed);
+          setActiveSheet(preferredSheet.name);
+        } else {
+          alert("Spreadsheet loaded, but the selected sheet did not contain machine summary rows.");
+        }
         return;
       }
 
-      if (parsed.length > 0) {
-        saveMachines(parsed);
-      } else {
-        alert("Spreadsheet uploaded but no valid rows were found.");
-      }
+      alert("Please upload .xlsx, .xls, .xlsm, or .csv");
     } catch (error) {
       console.error(error);
       alert("Could not read spreadsheet file.");
+    }
+  };
+
+  const loadSheetByName = (sheetName: string) => {
+    const selected = workbookSheets.find((s) => s.name === sheetName);
+    if (!selected) return;
+
+    const parsed = parseSelectedSheet(selected.name, selected.rows);
+    if (parsed.length > 0) {
+      saveMachines(parsed);
+      setActiveSheet(sheetName);
+    } else {
+      alert(`Sheet "${sheetName}" does not contain machine summary rows for the dashboard.`);
     }
   };
 
@@ -343,7 +390,7 @@ export default function Page() {
               </div>
 
               <div className="infoBox">
-                You can now upload Excel directly. The app reads the first worksheet and maps common columns like fleet, type, machine type, status, location, department, availability, repair reason, and spares ETA.
+                Excel upload now loads the workbook and uses <strong>Summary</strong> first, then <strong>Summary (Excl Tyre)</strong>. Event log sheets are not used as the main machine register.
               </div>
             </section>
 
@@ -520,13 +567,13 @@ export default function Page() {
                 <div className="noteCard">
                   <div className="noteIcon">📄</div>
                   <div>
-                    <h3>Excel upload ready</h3>
-                    <p>The upload box now accepts real Excel files plus CSV.</p>
+                    <h3>Excel upload fixed</h3>
+                    <p>Workbook now uses Summary sheets first instead of the event log sheet.</p>
                   </div>
                 </div>
 
                 <div className="mutedCard">
-                  Type graph now shows machine groups like FEL, TEX, TRT, HT, TRL, TDC and any other types in your uploaded data.
+                  Bottom tabs show workbook sheets. Click a tab to test another sheet without changing the dashboard layout.
                 </div>
               </div>
             </section>
@@ -727,6 +774,27 @@ export default function Page() {
             </section>
           </aside>
         </main>
+
+        {sheetNames.length > 0 && (
+          <section className="sheetTabsPanel">
+            <div className="sheetTabsHeader">
+              <h3>Workbook Sheets</h3>
+              <p>Click a sheet tab to load it into the dashboard.</p>
+            </div>
+
+            <div className="sheetTabs">
+              {sheetNames.map((name) => (
+                <button
+                  key={name}
+                  className={`sheetTab ${activeSheet === name ? "activeSheetTab" : ""}`}
+                  onClick={() => loadSheetByName(name)}
+                >
+                  {name}
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
       </div>
 
       <style jsx>{`
@@ -1291,6 +1359,44 @@ export default function Page() {
           font-size: 13px;
           color: #d8e1f6;
         }
+        .sheetTabsPanel {
+          margin-top: 16px;
+          background: linear-gradient(180deg, rgba(17, 42, 87, 0.92), rgba(10, 29, 63, 0.94));
+          border: 1px solid rgba(255,255,255,0.1);
+          border-radius: 18px;
+          padding: 16px;
+          box-shadow: 0 18px 40px rgba(0,0,0,0.22);
+        }
+        .sheetTabsHeader h3 {
+          margin: 0;
+          font-size: 16px;
+          font-weight: 900;
+        }
+        .sheetTabsHeader p {
+          margin: 6px 0 0;
+          color: #c8d4ea;
+          font-size: 14px;
+        }
+        .sheetTabs {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px;
+          margin-top: 14px;
+        }
+        .sheetTab {
+          border: 1px solid rgba(255,255,255,0.14);
+          background: rgba(10, 23, 52, 0.5);
+          color: white;
+          border-radius: 999px;
+          padding: 10px 14px;
+          font-size: 13px;
+          font-weight: 800;
+          cursor: pointer;
+        }
+        .activeSheetTab {
+          background: linear-gradient(180deg, #ffb24c, #f29a1f);
+          border: none;
+        }
         @media (max-width: 1280px) {
           .topbar {
             grid-template-columns: 1fr;
@@ -1383,26 +1489,87 @@ function parseCSV(text: string): Machine[] {
     .map((line) => {
       const cols = line.split(",").map((col) => col.trim());
       const row: Record<string, string> = {};
-
       headers.forEach((header, index) => {
         row[header] = cols[index] || "";
       });
-
       return normalizeMachine(row);
     })
     .filter((row) => row.fleet && row.machineType);
 }
 
-function mapSpreadsheetRows(rows: Record<string, unknown>[]): Machine[] {
+function isSummaryLikeSheet(rows: Record<string, unknown>[]) {
+  if (!rows.length) return false;
+  const first = normalizeKeys(rows[0]);
+  return (
+    ("machine" in first || "fleet" in first || "fleet number" in first) &&
+    ("availability" in first || "availability %" in first)
+  );
+}
+
+function parseSelectedSheet(sheetName: string, rows: Record<string, unknown>[]): Machine[] {
+  const lower = sheetName.toLowerCase();
+
+  if (lower.includes("summary")) {
+    return mapSummaryRows(rows);
+  }
+
+  const normalizedFirst = rows[0] ? normalizeKeys(rows[0]) : {};
+  if (
+    "machine" in normalizedFirst &&
+    "availability" in normalizedFirst
+  ) {
+    return mapSummaryRows(rows);
+  }
+
+  return [];
+}
+
+function mapSummaryRows(rows: Record<string, unknown>[]): Machine[] {
   return rows
     .map((row) => {
-      const normalized: Record<string, string> = {};
-      Object.entries(row).forEach(([key, value]) => {
-        normalized[String(key).trim().toLowerCase()] = String(value ?? "").trim();
-      });
-      return normalizeMachine(normalized);
+      const n = normalizeKeys(row);
+
+      const fleet = String(n["machine"] || n["fleet"] || n["fleet number"] || "").trim();
+      if (!fleet) return null;
+
+      const availabilityRaw = n["availability"] ?? n["availability %"] ?? "";
+      let availability = Number(availabilityRaw);
+      if (!Number.isFinite(availability)) availability = 0;
+
+      if (availability <= 1) {
+        availability = Math.round(availability * 10000) / 100;
+      }
+
+      const downtime = Number(n["downtime"] || 0);
+      const status =
+        availability >= 85 ? "Available" :
+        availability > 0 ? "Repair" :
+        downtime >= 359 ? "Down" :
+        "Repair";
+
+      return {
+        fleet,
+        type: inferTypeFromFleet(fleet),
+        machineType: fleet,
+        status,
+        location: "Hwange",
+        department: inferDepartmentFromType(inferTypeFromFleet(fleet)),
+        availability,
+        updated: new Date().toLocaleDateString(),
+        majorRepair: false,
+        repairReason: "",
+        sparesEta: ""
+      } as Machine;
     })
-    .filter((row) => row.fleet && row.machineType);
+    .filter((row): row is Machine => Boolean(row));
+}
+
+function normalizeKeys(row: Record<string, unknown>): Record<string, string> {
+  const normalized: Record<string, string> = {};
+  Object.entries(row).forEach(([key, value]) => {
+    normalized[String(key).trim().toLowerCase()] = String(value ?? "").trim();
+  });
+  return normalized;
 }
 
 function normalizeMachine(row: Record<string, string>): Machine {
@@ -1410,17 +1577,32 @@ function normalizeMachine(row: Record<string, string>): Machine {
     String(row.majorrepair || row["major repair"] || "").toLowerCase() === "true" ||
     String(row.status || "").toLowerCase().includes("major");
 
+  const fleet = row.fleet || row["fleet number"] || row.unit || "UNIT";
+  const type = row.type || inferTypeFromFleet(fleet);
+
   return {
-    fleet: row.fleet || row["fleet number"] || row.unit || "UNIT",
-    type: row.type || "GEN",
-    machineType: row["machine type"] || row.model || row.type || "Machine",
+    fleet,
+    type,
+    machineType: row["machine type"] || row.model || fleet,
     status: majorRepair ? "Major Repair" : row.status || "Available",
-    location: row.location || "Unknown",
-    department: row.department || "Plant",
+    location: row.location || "Hwange",
+    department: row.department || inferDepartmentFromType(type),
     availability: Number(row.availability || row["availability %"] || row.percent || 0),
     updated: row.updated || new Date().toLocaleDateString(),
     majorRepair,
     repairReason: row.repairreason || row["repair reason"] || "",
     sparesEta: row.spareseta || row["spares eta"] || ""
   };
+}
+
+function inferTypeFromFleet(fleet: string) {
+  const match = fleet.toUpperCase().match(/^[A-Z]+/);
+  return match ? match[0] : "GEN";
+}
+
+function inferDepartmentFromType(type: string) {
+  const t = type.toUpperCase();
+  if (["FEL", "HT", "TEX", "TMD", "TMG", "WB"].includes(t)) return "Mining";
+  if (["TRT", "TRL", "TDC", "LV"].includes(t)) return "Logistics";
+  return "Plant";
 }
