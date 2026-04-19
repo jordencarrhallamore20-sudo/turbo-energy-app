@@ -1,19 +1,13 @@
-export const dynamic = "force-dynamic"
+"use client"
 
-import { createClient } from "@supabase/supabase-js"
+import { useState } from "react"
 
 type Machine = {
-  id: string
   name: string
   model: string
   status: string
   department: string
 }
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
 
 function getStatusColor(status: string) {
   const value = (status || "").toLowerCase()
@@ -27,9 +21,29 @@ function getType(name: string) {
   return (name || "").slice(0, 3).toUpperCase() || "OTH"
 }
 
-export default async function Page() {
-  const { data } = await supabase.from("machines").select("*")
-  const machines: Machine[] = data || []
+export default function Page() {
+  const [machines, setMachines] = useState<Machine[]>([])
+
+  function handleFile(e: any) {
+    const file = e.target.files[0]
+    if (!file) return
+
+    const reader = new FileReader()
+
+    reader.onload = (evt: any) => {
+      const text = evt.target.result
+      const rows = text.split("\n")
+
+      const data: Machine[] = rows.slice(1).map((row: string) => {
+        const [name, model, status, department] = row.split(",")
+        return { name, model, status, department }
+      })
+
+      setMachines(data)
+    }
+
+    reader.readAsText(file)
+  }
 
   const total = machines.length
   const available = machines.filter(m => getStatusColor(m.status) === "green").length
@@ -59,7 +73,8 @@ export default async function Page() {
           <img src="/logo.png" className="logo" />
           <h1>Machine Availability</h1>
         </div>
-        <button className="upload-btn">Upload Excel</button>
+
+        <input type="file" accept=".csv" onChange={handleFile} />
       </div>
 
       <div className="stats">
@@ -84,8 +99,8 @@ export default async function Page() {
           <div key={dept} className="department">
             <h2>{dept}</h2>
 
-            {deptMap[dept].map((m: Machine) => (
-              <div key={m.id} className="machine">
+            {deptMap[dept].map((m: Machine, i: number) => (
+              <div key={i} className="machine">
                 <div>{m.name}</div>
                 <div>{m.model}</div>
                 <div className={`status ${getStatusColor(m.status)}`}>
