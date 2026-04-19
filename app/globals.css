@@ -1,8 +1,15 @@
 :root {
   --primary: #ff6a00;
   --background: #0a192f;
-  --panel: #1a1a1a;
+  --panel: #111827;
+  --panel-2: #1f2937;
+  --line: rgba(255, 255, 255, 0.08);
   --text: #ffffff;
+  --muted: #9ca3af;
+}
+
+* {
+  box-sizing: border-box;
 }
 
 body {
@@ -16,11 +23,15 @@ body {
   padding: 20px;
 }
 
+/* HEADER */
 .header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 25px;
+  padding: 15px;
+  background: #0f172a;
+  border-radius: 12px;
 }
 
 .header-left {
@@ -31,6 +42,7 @@ body {
 
 .logo {
   height: 50px;
+  object-fit: contain;
 }
 
 .upload-btn {
@@ -41,6 +53,7 @@ body {
   cursor: pointer;
 }
 
+/* STATS */
 .stats {
   display: flex;
   gap: 15px;
@@ -50,10 +63,12 @@ body {
 .card {
   flex: 1;
   background: var(--panel);
-  padding: 18px;
+  padding: 15px;
   text-align: center;
+  border-radius: 10px;
 }
 
+/* TYPES */
 .types {
   display: flex;
   gap: 10px;
@@ -61,47 +76,33 @@ body {
 }
 
 .type-card {
-  background: var(--panel);
-  padding: 15px;
   flex: 1;
+  background: var(--panel);
+  padding: 12px;
+  border-radius: 10px;
   text-align: center;
 }
 
+/* DEPARTMENTS */
 .departments {
   margin-top: 20px;
 }
 
 .department {
-  margin-bottom: 25px;
-}
-
-.department h2 {
-  margin-bottom: 10px;
+  margin-bottom: 20px;
 }
 
 .machine {
   display: flex;
   justify-content: space-between;
-  background: var(--panel);
-  padding: 12px;
-  margin-bottom: 6px;
+  background: var(--panel-2);
+  padding: 10px;
+  margin-bottom: 5px;
+  border-radius: 8px;
 }
 
-.status.green { color: #2bb673; }
-.status.red { color: #d94141; }
-.status.orange { color: #f0b429; }
-
-.table-container {
-  margin-top: 20px;
-}
-
-table {
-  width: 100%;
-  background: var(--panel);
-  border-collapse: collapse;
-}
-
-th, td {
-  padding: 12px;
-  border-bottom: 1px solid #333;
-}
+/* STATUS */
+.status.green { color: #22c55e; }
+.status.red { color: #ef4444; }
+.status.orange { color: #f59e0b; }
+.status.gray { color: #9ca3af; }
