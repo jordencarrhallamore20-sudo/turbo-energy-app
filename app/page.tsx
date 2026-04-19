@@ -32,7 +32,7 @@ const sampleData: Machine[] = [
   { fleet: "TDC01", type: "TDC", machineType: "Service Truck", status: "Available", location: "Hwange", department: "Plant", availability: 86, updated: "18 Apr 2026", majorRepair: false, repairReason: "", sparesEta: "" },
   { fleet: "GEN02", type: "GEN", machineType: "WTS000", status: "Available", location: "Hwange", department: "Plant", availability: 67, updated: "18 Apr 2026", majorRepair: false, repairReason: "", sparesEta: "" },
   { fleet: "WB01", type: "WB", machineType: "Water Bowser", status: "Major Repair", location: "Kariba", department: "Mining", availability: 71, updated: "18 Apr 2026", majorRepair: true, repairReason: "Transmission parts", sparesEta: "30 Apr 2026" },
-  { fleet: "LV01", type: "LV", machineType: "Light Vehicle", status: "Available", location: "Hwange", department: "Logistics", availability: 92, updated: "19 Apr 2026", majorRepair: false, repairReason: "", sparesEta: "" }
+  { fleet: "LV01", type: "LDV", machineType: "Light Vehicle", status: "Available", location: "Hwange", department: "Logistics", availability: 92, updated: "19 Apr 2026", majorRepair: false, repairReason: "", sparesEta: "" }
 ];
 
 const departments = ["Plant", "Mining", "Logistics", "Admin", "Workshop"];
@@ -104,8 +104,9 @@ export default function Page() {
     const groups: Record<string, number[]> = {};
 
     mainMachines.forEach((machine) => {
-      if (!groups[machine.type]) groups[machine.type] = [];
-      groups[machine.type].push(Number(machine.availability) || 0);
+      const groupType = normalizeTypeLabel(machine.type);
+      if (!groups[groupType]) groups[groupType] = [];
+      groups[groupType].push(Number(machine.availability) || 0);
     });
 
     return Object.entries(groups)
@@ -401,7 +402,7 @@ export default function Page() {
               </div>
 
               <div className="infoBox">
-                Excel upload now uses <strong>Summary</strong> first, then <strong>Summary (Excl Tyre)</strong>. Registration-style light vehicles are grouped into <strong>LV</strong>. The chart now scrolls inside its own box and no longer stretches the whole page.
+                Excel upload now uses <strong>Summary</strong> first, then <strong>Summary (Excl Tyre)</strong>. Registration-style light vehicles are grouped into <strong>LDV</strong>. The chart now scrolls inside its own box and no longer stretches the whole page.
               </div>
             </section>
 
@@ -584,7 +585,7 @@ export default function Page() {
                 </div>
 
                 <div className="mutedCard">
-                  Light vehicle registrations are grouped into LV and the chart stays inside its own panel.
+                  Light vehicle registrations are grouped into LDV and the chart stays inside its own panel.
                 </div>
               </div>
             </section>
@@ -1619,6 +1620,12 @@ function getStatusClass(status: string, majorRepair?: boolean) {
   return "statusDown";
 }
 
+function normalizeTypeLabel(type: string) {
+  const cleaned = String(type || "").toUpperCase().trim();
+  if (cleaned === "LV") return "LDV";
+  return cleaned;
+}
+
 function parseCSV(text: string): Machine[] {
   const lines = text.trim().split(/\r?\n/);
   if (lines.length < 2) return [];
@@ -1672,7 +1679,7 @@ function mapSummaryRows(rows: Record<string, unknown>[]): Machine[] {
       const fleet = String(n["machine"] || n["fleet"] || n["fleet number"] || "").trim();
       if (!fleet) return null;
 
-      const inferredType = inferTypeFromFleet(fleet);
+      const inferredType = normalizeTypeLabel(inferTypeFromFleet(fleet));
 
       const availabilityRaw = n["availability"] ?? n["availability %"] ?? "";
       let availability = Number(availabilityRaw);
@@ -1692,7 +1699,7 @@ function mapSummaryRows(rows: Record<string, unknown>[]): Machine[] {
       return {
         fleet,
         type: inferredType,
-        machineType: inferredType === "LV" ? "Light Vehicle" : fleet,
+        machineType: inferredType === "LDV" ? "Light Vehicle" : fleet,
         status,
         location: "Hwange",
         department: inferDepartmentFromType(inferredType),
@@ -1720,12 +1727,12 @@ function normalizeMachine(row: Record<string, string>): Machine {
     String(row.status || "").toLowerCase().includes("major");
 
   const fleet = row.fleet || row["fleet number"] || row.unit || "UNIT";
-  const type = row.type || inferTypeFromFleet(fleet);
+  const type = normalizeTypeLabel(row.type || inferTypeFromFleet(fleet));
 
   return {
     fleet,
     type,
-    machineType: row["machine type"] || row.model || (type === "LV" ? "Light Vehicle" : fleet),
+    machineType: row["machine type"] || row.model || (type === "LDV" ? "Light Vehicle" : fleet),
     status: majorRepair ? "Major Repair" : row.status || "Available",
     location: row.location || "Hwange",
     department: row.department || inferDepartmentFromType(type),
@@ -1750,6 +1757,7 @@ function inferTypeFromFleet(fleet: string) {
     "GEN",
     "WB",
     "LV",
+    "LDV",
     "WT",
     "EX",
     "DT",
@@ -1759,13 +1767,13 @@ function inferTypeFromFleet(fleet: string) {
 
   for (const prefix of knownHeavyPrefixes) {
     if (cleaned.startsWith(prefix)) {
-      return prefix;
+      return prefix === "LV" ? "LDV" : prefix;
     }
   }
 
   const regPattern = /^[A-Z]{3}\s?\d{3,4}$/;
   if (regPattern.test(cleaned)) {
-    return "LV";
+    return "LDV";
   }
 
   const lettersOnly = cleaned.match(/^[A-Z]+/);
@@ -1773,17 +1781,17 @@ function inferTypeFromFleet(fleet: string) {
 
   const prefix = lettersOnly[0];
 
-  if (prefix.length === 3) {
-    return "LV";
+  if (prefix.length === 3 && regPattern.test(cleaned)) {
+    return "LDV";
   }
 
   return prefix;
 }
 
 function inferDepartmentFromType(type: string) {
-  const t = type.toUpperCase();
+  const t = normalizeTypeLabel(type);
 
-  if (t === "LV") return "Plant";
+  if (t === "LDV") return "Logistics";
   if (["FEL", "HT", "TEX", "WB", "EX", "DT"].includes(t)) return "Mining";
   if (["TRT", "TRL", "TDC", "TLB", "CARGO"].includes(t)) return "Logistics";
 
