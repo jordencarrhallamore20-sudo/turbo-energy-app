@@ -16,15 +16,15 @@ const supabase = createClient(
 )
 
 function getStatusColor(status: string) {
-  const s = status?.toLowerCase() || ""
-  if (s.includes("avail")) return "green"
-  if (s.includes("repair")) return "orange"
-  if (s.includes("down")) return "red"
+  const value = (status || "").toLowerCase()
+  if (value.includes("avail")) return "green"
+  if (value.includes("repair")) return "orange"
+  if (value.includes("down")) return "red"
   return "gray"
 }
 
 function getType(name: string) {
-  return name?.slice(0, 3).toUpperCase() || "OTH"
+  return (name || "").slice(0, 3).toUpperCase() || "OTH"
 }
 
 export default async function Page() {
@@ -35,29 +35,19 @@ export default async function Page() {
   const available = machines.filter(m => getStatusColor(m.status) === "green").length
   const down = machines.filter(m => getStatusColor(m.status) === "red").length
 
-  // TYPE GROUPING
   const typeMap: any = {}
   machines.forEach(m => {
     const type = getType(m.name)
-
-    if (!typeMap[type]) {
-      typeMap[type] = { total: 0, available: 0, down: 0 }
-    }
-
+    if (!typeMap[type]) typeMap[type] = { total: 0, available: 0, down: 0 }
     typeMap[type].total++
     if (getStatusColor(m.status) === "green") typeMap[type].available++
     if (getStatusColor(m.status) === "red") typeMap[type].down++
   })
 
-  // DEPARTMENT GROUPING
   const deptMap: any = {}
   machines.forEach(m => {
     const dept = m.department || "Unassigned"
-
-    if (!deptMap[dept]) {
-      deptMap[dept] = []
-    }
-
+    if (!deptMap[dept]) deptMap[dept] = []
     deptMap[dept].push(m)
   })
 
@@ -69,7 +59,6 @@ export default async function Page() {
           <img src="/logo.png" className="logo" />
           <h1>Machine Availability</h1>
         </div>
-
         <button className="upload-btn">Upload Excel</button>
       </div>
 
@@ -79,7 +68,6 @@ export default async function Page() {
         <div className="card">Down: {down}</div>
       </div>
 
-      {/* TYPE BREAKDOWN */}
       <div className="types">
         {Object.keys(typeMap).map(type => (
           <div key={type} className="type-card">
@@ -91,7 +79,6 @@ export default async function Page() {
         ))}
       </div>
 
-      {/* DEPARTMENTS */}
       <div className="departments">
         {Object.keys(deptMap).map(dept => (
           <div key={dept} className="department">
@@ -109,29 +96,6 @@ export default async function Page() {
 
           </div>
         ))}
-      </div>
-
-      <div className="table-container">
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Model</th>
-              <th>Status</th>
-              <th>Department</th>
-            </tr>
-          </thead>
-          <tbody>
-            {machines.map((m) => (
-              <tr key={m.id}>
-                <td>{m.name}</td>
-                <td>{m.model}</td>
-                <td>{m.status}</td>
-                <td>{m.department}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
       </div>
 
     </div>
