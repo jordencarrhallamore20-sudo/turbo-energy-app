@@ -23,6 +23,10 @@ function getStatusColor(status: string) {
   return "gray"
 }
 
+function getType(name: string) {
+  return name?.slice(0, 3).toUpperCase() || "OTH"
+}
+
 export default async function Page() {
   const { data } = await supabase.from("machines").select("*")
   const machines: Machine[] = data || []
@@ -30,6 +34,21 @@ export default async function Page() {
   const total = machines.length
   const available = machines.filter(m => getStatusColor(m.status) === "green").length
   const down = machines.filter(m => getStatusColor(m.status) === "red").length
+
+  const typeMap: any = {}
+
+  machines.forEach(m => {
+    const type = getType(m.name)
+
+    if (!typeMap[type]) {
+      typeMap[type] = { total: 0, available: 0, down: 0 }
+    }
+
+    typeMap[type].total++
+
+    if (getStatusColor(m.status) === "green") typeMap[type].available++
+    if (getStatusColor(m.status) === "red") typeMap[type].down++
+  })
 
   return (
     <div className="page">
@@ -47,6 +66,17 @@ export default async function Page() {
         <div className="card">Total: {total}</div>
         <div className="card">Available: {available}</div>
         <div className="card">Down: {down}</div>
+      </div>
+
+      <div className="types">
+        {Object.keys(typeMap).map(type => (
+          <div key={type} className="type-card">
+            <h3>{type}</h3>
+            <p>Total: {typeMap[type].total}</p>
+            <p>Available: {typeMap[type].available}</p>
+            <p>Down: {typeMap[type].down}</p>
+          </div>
+        ))}
       </div>
 
       <div className="list">
