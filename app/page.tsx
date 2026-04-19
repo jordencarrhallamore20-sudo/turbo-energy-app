@@ -1,1021 +1,1791 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Fleet Availability Dashboard</title>
-  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <style>
-    :root{
-      --primary:#ff6a00;
-      --primary-dark:#cc5500;
-      --bg:#0a192f;
-      --panel:#112240;
-      --panel-2:#1a2f52;
-      --soft:#243b64;
-      --text:#ffffff;
-      --muted:#b7c2d0;
-      --success:#20bf6b;
-      --warning:#f7b731;
-      --danger:#eb3b5a;
-      --border:rgba(255,255,255,0.08);
-      --shadow:0 10px 30px rgba(0,0,0,0.28);
-      --radius:18px;
-      --max-width:1400px;
-    }
+"use client";
 
-    *{box-sizing:border-box}
-    body{
-      margin:0;
-      font-family:Arial, Helvetica, sans-serif;
-      background:
-        radial-gradient(circle at top, rgba(255,106,0,0.12), transparent 24%),
-        radial-gradient(circle at right top, rgba(255,255,255,0.06), transparent 18%),
-        var(--bg);
-      color:var(--text);
-    }
+import * as XLSX from "xlsx";
+import { ChangeEvent, useEffect, useMemo, useState } from "react";
 
-    .app-shell{
-      width:100%;
-      max-width:var(--max-width);
-      margin:0 auto;
-      padding:20px;
-    }
+type Machine = {
+  fleet: string;
+  type: string;
+  machineType: string;
+  status: string;
+  location: string;
+  department: string;
+  availability: number;
+  updated: string;
+  majorRepair: boolean;
+  repairReason: string;
+  sparesEta: string;
+};
 
-    .topbar{
-      display:flex;
-      flex-wrap:wrap;
-      gap:14px;
-      justify-content:space-between;
-      align-items:center;
-      margin-bottom:18px;
-    }
+type WorkbookSheetData = {
+  name: string;
+  rows: Record<string, unknown>[];
+};
 
-    .brand{
-      display:flex;
-      align-items:center;
-      gap:12px;
-    }
+const sampleData: Machine[] = [
+  { fleet: "FEL09", type: "FEL", machineType: "SL60", status: "Available", location: "Hwange", department: "Plant", availability: 88, updated: "19 Apr 2026", majorRepair: false, repairReason: "", sparesEta: "" },
+  { fleet: "FEL10", type: "FEL", machineType: "966H", status: "Available", location: "Hwange", department: "Plant", availability: 91, updated: "19 Apr 2026", majorRepair: false, repairReason: "", sparesEta: "" },
+  { fleet: "TEX01", type: "TEX", machineType: "TK371", status: "Repair", location: "Kariba", department: "Mining", availability: 75, updated: "18 Apr 2026", majorRepair: false, repairReason: "", sparesEta: "" },
+  { fleet: "TRT07", type: "TRT", machineType: "TR100", status: "Available", location: "Hwange", department: "Logistics", availability: 100, updated: "18 Apr 2026", majorRepair: false, repairReason: "", sparesEta: "" },
+  { fleet: "HT03", type: "HT", machineType: "773E", status: "Major Repair", location: "Binga", department: "Mining", availability: 82, updated: "17 Apr 2026", majorRepair: true, repairReason: "Engine rebuild", sparesEta: "25 Apr 2026" },
+  { fleet: "TRL01", type: "TRL", machineType: "Lowbed", status: "Available", location: "Harare", department: "Logistics", availability: 93, updated: "18 Apr 2026", majorRepair: false, repairReason: "", sparesEta: "" },
+  { fleet: "TDC01", type: "TDC", machineType: "Service Truck", status: "Available", location: "Hwange", department: "Plant", availability: 86, updated: "18 Apr 2026", majorRepair: false, repairReason: "", sparesEta: "" },
+  { fleet: "GEN02", type: "GEN", machineType: "WTS000", status: "Available", location: "Hwange", department: "Plant", availability: 67, updated: "18 Apr 2026", majorRepair: false, repairReason: "", sparesEta: "" },
+  { fleet: "WB01", type: "WB", machineType: "Water Bowser", status: "Major Repair", location: "Kariba", department: "Mining", availability: 71, updated: "18 Apr 2026", majorRepair: true, repairReason: "Transmission parts", sparesEta: "30 Apr 2026" },
+  { fleet: "LV01", type: "LV", machineType: "Light Vehicle", status: "Available", location: "Hwange", department: "Logistics", availability: 92, updated: "19 Apr 2026", majorRepair: false, repairReason: "", sparesEta: "" }
+];
 
-    .brand-badge{
-      width:48px;
-      height:48px;
-      border-radius:14px;
-      background:linear-gradient(135deg,var(--primary),#ff9f43);
-      display:grid;
-      place-items:center;
-      font-weight:700;
-      color:#111;
-      box-shadow:var(--shadow);
-    }
+const departments = ["Plant", "Mining", "Logistics", "Admin", "Workshop"];
 
-    .brand h1{
-      margin:0;
-      font-size:1.35rem;
-      line-height:1.1;
-    }
+export default function Page() {
+  const [machines, setMachines] = useState<Machine[]>([]);
+  const [selectedType, setSelectedType] = useState("ALL");
+  const [search, setSearch] = useState("");
+  const [fileName, setFileName] = useState("No file chosen");
+  const [sheetNames, setSheetNames] = useState<string[]>([]);
+  const [workbookSheets, setWorkbookSheets] = useState<WorkbookSheetData[]>([]);
+  const [activeSheet, setActiveSheet] = useState("");
 
-    .brand p{
-      margin:3px 0 0;
-      color:var(--muted);
-      font-size:0.9rem;
-    }
-
-    .controls{
-      display:flex;
-      flex-wrap:wrap;
-      gap:10px;
-      align-items:center;
-    }
-
-    .panel{
-      background:linear-gradient(180deg,var(--panel),var(--panel-2));
-      border:1px solid var(--border);
-      border-radius:var(--radius);
-      box-shadow:var(--shadow);
-      padding:16px;
-    }
-
-    .controls .panel{
-      padding:12px;
-    }
-
-    input[type="file"],
-    input[type="text"],
-    select{
-      background:#0e1d35;
-      color:var(--text);
-      border:1px solid var(--border);
-      padding:11px 12px;
-      border-radius:12px;
-      outline:none;
-      min-height:42px;
-    }
-
-    input[type="text"]{
-      min-width:220px;
-    }
-
-    button{
-      border:none;
-      background:var(--primary);
-      color:#111;
-      padding:11px 14px;
-      border-radius:12px;
-      cursor:pointer;
-      font-weight:700;
-      min-height:42px;
-    }
-
-    button:hover{
-      background:#ff7f24;
-    }
-
-    button.secondary{
-      background:#213757;
-      color:var(--text);
-      border:1px solid var(--border);
-    }
-
-    button.danger{
-      background:var(--danger);
-      color:#fff;
-    }
-
-    .admin-toggle{
-      display:flex;
-      align-items:center;
-      gap:8px;
-      color:var(--muted);
-      font-size:0.95rem;
-    }
-
-    .summary-grid{
-      display:grid;
-      grid-template-columns:repeat(4, minmax(0,1fr));
-      gap:14px;
-      margin-bottom:18px;
-    }
-
-    .card{
-      background:linear-gradient(180deg,#132747,#0e1e36);
-      border:1px solid var(--border);
-      border-radius:18px;
-      padding:18px;
-      min-height:120px;
-    }
-
-    .card h3{
-      margin:0 0 10px;
-      color:var(--muted);
-      font-size:0.95rem;
-      font-weight:600;
-    }
-
-    .metric{
-      font-size:2rem;
-      font-weight:800;
-      margin:0;
-    }
-
-    .submetric{
-      margin-top:8px;
-      color:var(--muted);
-      font-size:0.92rem;
-    }
-
-    .status-good{color:var(--success)}
-    .status-warn{color:var(--warning)}
-    .status-bad{color:var(--danger)}
-
-    .charts-grid{
-      display:grid;
-      grid-template-columns:1.2fr 1fr;
-      gap:18px;
-      margin-bottom:18px;
-      align-items:start;
-    }
-
-    .chart-panel{
-      min-width:0;
-      overflow:hidden;
-    }
-
-    .chart-wrap{
-      position:relative;
-      width:100%;
-      height:320px;
-      max-width:100%;
-    }
-
-    .section-title{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:12px;
-      margin-bottom:12px;
-    }
-
-    .section-title h2{
-      margin:0;
-      font-size:1.1rem;
-    }
-
-    .muted{
-      color:var(--muted);
-      font-size:0.9rem;
-    }
-
-    .table-wrap{
-      width:100%;
-      overflow-x:auto;
-      border-radius:14px;
-      border:1px solid var(--border);
-    }
-
-    table{
-      width:100%;
-      border-collapse:collapse;
-      min-width:900px;
-      background:#0e1d35;
-    }
-
-    th, td{
-      padding:10px 12px;
-      border-bottom:1px solid rgba(255,255,255,0.06);
-      text-align:left;
-      font-size:0.92rem;
-      vertical-align:middle;
-    }
-
-    th{
-      background:#142846;
-      color:#dbe7f5;
-      position:sticky;
-      top:0;
-      z-index:1;
-    }
-
-    tr:hover td{
-      background:rgba(255,255,255,0.03);
-    }
-
-    .badge{
-      display:inline-block;
-      padding:5px 10px;
-      border-radius:999px;
-      font-size:0.8rem;
-      font-weight:700;
-      white-space:nowrap;
-    }
-
-    .badge-available{background:rgba(32,191,107,0.16); color:#7bed9f;}
-    .badge-breakdown{background:rgba(235,59,90,0.16); color:#ff7b98;}
-    .badge-maintenance{background:rgba(247,183,49,0.16); color:#ffd166;}
-    .badge-repair{background:rgba(255,106,0,0.16); color:#ffb26b;}
-    .badge-other{background:rgba(116,125,140,0.2); color:#dfe4ea;}
-
-    .split-grid{
-      display:grid;
-      grid-template-columns:1fr 1fr;
-      gap:18px;
-      margin-bottom:18px;
-    }
-
-    .machine-panels{
-      display:grid;
-      grid-template-columns:1fr;
-      gap:18px;
-      margin-bottom:18px;
-    }
-
-    .pill-row{
-      display:flex;
-      flex-wrap:wrap;
-      gap:8px;
-      margin-top:10px;
-    }
-
-    .tiny-pill{
-      padding:6px 10px;
-      border-radius:999px;
-      background:#1f3557;
-      color:#dbe7f5;
-      font-size:0.8rem;
-      border:1px solid var(--border);
-    }
-
-    .hidden{
-      display:none !important;
-    }
-
-    .search-result{
-      margin-top:10px;
-      padding:12px;
-      border-radius:12px;
-      background:#10223d;
-      border:1px solid var(--border);
-    }
-
-    .footer-note{
-      margin-top:16px;
-      color:var(--muted);
-      font-size:0.85rem;
-    }
-
-    .small-btn{
-      padding:8px 10px;
-      min-height:auto;
-      font-size:0.82rem;
-      border-radius:10px;
-    }
-
-    .action-group{
-      display:flex;
-      flex-wrap:wrap;
-      gap:6px;
-    }
-
-    @media (max-width:1100px){
-      .summary-grid{
-        grid-template-columns:repeat(2, minmax(0,1fr));
+  useEffect(() => {
+    const stored = localStorage.getItem("turboMachineData");
+    if (stored) {
+      try {
+        setMachines(JSON.parse(stored));
+      } catch {
+        setMachines(sampleData);
+        localStorage.setItem("turboMachineData", JSON.stringify(sampleData));
       }
-      .charts-grid,
-      .split-grid{
-        grid-template-columns:1fr;
-      }
+    } else {
+      setMachines(sampleData);
+      localStorage.setItem("turboMachineData", JSON.stringify(sampleData));
     }
+  }, []);
 
-    @media (max-width:640px){
-      .summary-grid{
-        grid-template-columns:1fr;
-      }
-      input[type="text"]{
-        min-width:100%;
-      }
-    }
-  </style>
-</head>
-<body>
-  <div class="app-shell">
-    <div class="topbar">
-      <div class="brand">
-        <div class="brand-badge">FA</div>
-        <div>
-          <h1>Fleet Availability Dashboard</h1>
-          <p>Upload Excel, manage fleet sections, and track availability properly</p>
-        </div>
-      </div>
+  const saveMachines = (data: Machine[]) => {
+    setMachines(data);
+    localStorage.setItem("turboMachineData", JSON.stringify(data));
+  };
 
-      <div class="controls">
-        <div class="panel">
-          <input type="file" id="excelFile" accept=".xlsx,.xls,.csv" />
-        </div>
+  const mainMachines = useMemo(() => machines.filter((m) => !m.majorRepair), [machines]);
 
-        <div class="panel">
-          <input type="text" id="searchFleet" placeholder="Search fleet / registration number" />
-          <button id="searchBtn">Search</button>
-        </div>
+  const totalMachines = machines.length;
+  const availableMachines = mainMachines.filter((m) => m.status.toLowerCase().includes("avail")).length;
+  const repairsMachines = mainMachines.filter((m) => !m.status.toLowerCase().includes("avail")).length;
+  const majorRepairsMachines = machines.filter((m) => m.majorRepair).length;
+  const locationCount = new Set(machines.map((m) => m.location)).size;
 
-        <div class="panel admin-toggle">
-          <label>
-            <input type="checkbox" id="adminMode" />
-            Admin mode
-          </label>
-        </div>
+  const typeOptions = useMemo(() => {
+    return ["ALL", ...Array.from(new Set(machines.map((m) => m.type))).sort()];
+  }, [machines]);
 
-        <div class="panel">
-          <button class="secondary" id="loadSampleBtn">Load sample data</button>
-          <button class="secondary" id="resetBtn">Reset</button>
-        </div>
-      </div>
-    </div>
+  const filteredMachines = useMemo(() => {
+    return machines.filter((machine) => {
+      const matchesType = selectedType === "ALL" || machine.type === selectedType;
+      const term = search.trim().toLowerCase();
 
-    <div id="searchOutput" class="search-result hidden"></div>
+      const matchesSearch =
+        term === "" ||
+        machine.fleet.toLowerCase().includes(term) ||
+        machine.type.toLowerCase().includes(term) ||
+        machine.machineType.toLowerCase().includes(term) ||
+        machine.status.toLowerCase().includes(term) ||
+        machine.location.toLowerCase().includes(term) ||
+        machine.department.toLowerCase().includes(term) ||
+        machine.repairReason.toLowerCase().includes(term);
 
-    <div class="summary-grid">
-      <div class="card">
-        <h3>Total Active Fleet</h3>
-        <p class="metric" id="totalFleet">0</p>
-        <div class="submetric">Excludes major repairs / long term rebuild</div>
-      </div>
+      return matchesType && matchesSearch;
+    });
+  }, [machines, search, selectedType]);
 
-      <div class="card">
-        <h3>Available Units</h3>
-        <p class="metric status-good" id="availableFleet">0</p>
-        <div class="submetric" id="availablePct">0%</div>
-      </div>
+  const topSummary = mainMachines.slice(0, 8);
+  const majorRepairsList = useMemo(() => machines.filter((m) => m.majorRepair), [machines]);
 
-      <div class="card">
-        <h3>Unavailable Units</h3>
-        <p class="metric status-bad" id="unavailableFleet">0</p>
-        <div class="submetric" id="unavailablePct">0%</div>
-      </div>
+  const groupedMachineTypeData = useMemo(() => {
+    const groups: Record<string, number[]> = {};
 
-      <div class="card">
-        <h3>Excluded from Totals</h3>
-        <p class="metric status-warn" id="excludedFleet">0</p>
-        <div class="submetric">Major Repairs + Long Term Rebuild</div>
-      </div>
-    </div>
+    mainMachines.forEach((machine) => {
+      if (!groups[machine.type]) groups[machine.type] = [];
+      groups[machine.type].push(Number(machine.availability) || 0);
+    });
 
-    <div class="charts-grid">
-      <div class="panel chart-panel">
-        <div class="section-title">
-          <h2>Overall Availability</h2>
-          <span class="muted">Chart size fixed so page does not stretch</span>
-        </div>
-        <div class="chart-wrap">
-          <canvas id="availabilityChart"></canvas>
-        </div>
-      </div>
+    return Object.entries(groups)
+      .map(([type, values]) => ({
+        type,
+        availability: Math.round(values.reduce((sum, value) => sum + value, 0) / values.length)
+      }))
+      .sort((a, b) => a.type.localeCompare(b.type));
+  }, [mainMachines]);
 
-      <div class="panel chart-panel">
-        <div class="section-title">
-          <h2>Department Availability</h2>
-          <span class="muted">Auto-calculated from machine assignments</span>
-        </div>
-        <div class="chart-wrap">
-          <canvas id="departmentChart"></canvas>
-        </div>
-      </div>
-    </div>
+  const departmentAvailability = useMemo(() => {
+    const groups: Record<string, Machine[]> = {};
 
-    <div class="split-grid">
-      <div class="panel">
-        <div class="section-title">
-          <h2>Light Vehicles</h2>
-          <span class="muted">Grouped separately</span>
-        </div>
-        <div class="pill-row" id="lightVehiclePills"></div>
-        <div class="table-wrap" style="margin-top:12px;">
-          <table>
-            <thead>
-              <tr>
-                <th>Registration</th>
-                <th>Department</th>
-                <th>Status</th>
-                <th>Section</th>
-                <th>Notes</th>
-                <th class="admin-only hidden">Actions</th>
-              </tr>
-            </thead>
-            <tbody id="lightVehiclesTable"></tbody>
-          </table>
-        </div>
-      </div>
+    machines.forEach((machine) => {
+      if (!groups[machine.department]) groups[machine.department] = [];
+      groups[machine.department].push(machine);
+    });
 
-      <div class="panel">
-        <div class="section-title">
-          <h2>Excluded Units</h2>
-          <span class="muted">Do not affect overall fleet totals</span>
-        </div>
-
-        <div class="pill-row">
-          <span class="tiny-pill">Major Repairs: <strong id="majorRepairsCount">0</strong></span>
-          <span class="tiny-pill">Long Term Rebuild: <strong id="longTermCount">0</strong></span>
-        </div>
-
-        <div class="table-wrap" style="margin-top:12px;">
-          <table>
-            <thead>
-              <tr>
-                <th>Fleet / Registration</th>
-                <th>Department</th>
-                <th>Status</th>
-                <th>Section</th>
-                <th>Notes</th>
-                <th class="admin-only hidden">Actions</th>
-              </tr>
-            </thead>
-            <tbody id="excludedTable"></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <div class="machine-panels">
-      <div class="panel">
-        <div class="section-title">
-          <h2>Main Fleet Machines</h2>
-          <span class="muted">Bottom section added back</span>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Fleet / Registration</th>
-                <th>Machine Type</th>
-                <th>Department</th>
-                <th>Status</th>
-                <th>Section</th>
-                <th>Notes</th>
-                <th class="admin-only hidden">Actions</th>
-              </tr>
-            </thead>
-            <tbody id="mainFleetTable"></tbody>
-          </table>
-        </div>
-      </div>
-
-      <div class="panel">
-        <div class="section-title">
-          <h2>All Machines Summary</h2>
-          <span class="muted">Everything from the Excel shown below</span>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Fleet / Registration</th>
-                <th>Machine Type</th>
-                <th>Department</th>
-                <th>Status</th>
-                <th>Section</th>
-                <th>Included In Totals</th>
-                <th>Notes</th>
-              </tr>
-            </thead>
-            <tbody id="allFleetTable"></tbody>
-          </table>
-        </div>
-        <div class="footer-note">
-          Expected Excel columns the app can read automatically:
-          <strong>Fleet No</strong>, <strong>Registration</strong>, <strong>Machine</strong>, <strong>Type</strong>, <strong>Department</strong>, <strong>Status</strong>, <strong>Section</strong>, <strong>Notes</strong>.
-          If your headings differ slightly, this code tries to match them.
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <script>
-    let rawFleetData = [];
-    let availabilityChart = null;
-    let departmentChart = null;
-
-    const knownLightVehicles = new Set([
-      "AFE 5504","AFN 0307","AFR 5684","AFX 1489","AFC 9890","AEX 0451",
-      "AFK 8279","AFX 0359","AFX 3400","ABH 4195","AEK 9938","AGA 5529",
-      "AGA 5514","AGA 5421","AGE 7705","AGP 9562","AGE 5580","AGP 4457",
-      "AGP 4458","AGQ 7369","AGQ 7370","AFX 7681","AEX 0450","AHH 2977"
-    ]);
-
-    const sampleData = [
-      { fleetNo:"EX001", registration:"", machineType:"Excavator", department:"Mining", status:"Available", section:"Main Fleet", notes:"" },
-      { fleetNo:"DT012", registration:"", machineType:"Dump Truck", department:"Mining", status:"Breakdown", section:"Main Fleet", notes:"Engine issue" },
-      { fleetNo:"LD004", registration:"", machineType:"Loader", department:"Plant", status:"Maintenance", section:"Main Fleet", notes:"Service due" },
-      { fleetNo:"DG003", registration:"", machineType:"Dozer", department:"Plant", status:"Available", section:"Main Fleet", notes:"" },
-      { fleetNo:"LV001", registration:"AFE 5504", machineType:"Light Vehicle", department:"Admin", status:"Available", section:"Light Vehicles", notes:"" },
-      { fleetNo:"LV002", registration:"AFN 0307", machineType:"Light Vehicle", department:"Operations", status:"Maintenance", section:"Light Vehicles", notes:"Tyres" },
-      { fleetNo:"LV003", registration:"AFX 1489", machineType:"Light Vehicle", department:"Workshop", status:"Available", section:"Light Vehicles", notes:"" },
-      { fleetNo:"EX009", registration:"", machineType:"Excavator", department:"Mining", status:"Repair", section:"Major Repairs", notes:"Hydraulic rebuild" },
-      { fleetNo:"DT022", registration:"", machineType:"Dump Truck", department:"Mining", status:"Repair", section:"Long Term Rebuild", notes:"Transmission rebuild" }
-    ];
-
-    function normalizeText(value){
-      return String(value ?? "").trim();
-    }
-
-    function cleanUpper(value){
-      return normalizeText(value).toUpperCase();
-    }
-
-    function findColumn(row, names){
-      const keys = Object.keys(row || {});
-      for(const key of keys){
-        const lower = key.toLowerCase().trim();
-        if(names.some(name => lower === name)) return key;
-      }
-      for(const key of keys){
-        const lower = key.toLowerCase().trim();
-        if(names.some(name => lower.includes(name))) return key;
-      }
-      return null;
-    }
-
-    function isAvailableStatus(status){
-      const s = cleanUpper(status);
-      return s === "AVAILABLE" || s === "RUNNING" || s === "WORKING" || s === "ACTIVE";
-    }
-
-    function getStatusBadge(status){
-      const s = cleanUpper(status);
-      if(["AVAILABLE","RUNNING","WORKING","ACTIVE"].includes(s)){
-        return `<span class="badge badge-available">${status || "Available"}</span>`;
-      }
-      if(["BREAKDOWN","BROKEN DOWN","DOWN"].includes(s)){
-        return `<span class="badge badge-breakdown">${status || "Breakdown"}</span>`;
-      }
-      if(["MAINTENANCE","SERVICE","PM SERVICE"].includes(s)){
-        return `<span class="badge badge-maintenance">${status || "Maintenance"}</span>`;
-      }
-      if(["REPAIR","MAJOR REPAIR","REBUILD"].includes(s)){
-        return `<span class="badge badge-repair">${status || "Repair"}</span>`;
-      }
-      return `<span class="badge badge-other">${status || "Other"}</span>`;
-    }
-
-    function classifySection(item){
-      const reg = cleanUpper(item.registration);
-      const type = cleanUpper(item.machineType);
-      const section = cleanUpper(item.section);
-
-      if(section === "MAJOR REPAIRS") return "Major Repairs";
-      if(section === "LONG TERM REBUILD") return "Long Term Rebuild";
-
-      if(
-        type.includes("LIGHT") ||
-        knownLightVehicles.has(reg)
-      ){
-        return "Light Vehicles";
-      }
-
-      return item.section && item.section.trim() ? item.section.trim() : "Main Fleet";
-    }
-
-    function prepareRow(row){
-      const fleetNoKey = findColumn(row, ["fleet no", "fleet number", "fleet", "unit no", "unit"]);
-      const regKey = findColumn(row, ["registration", "reg no", "reg", "registration no"]);
-      const machineKey = findColumn(row, ["machine", "machine type", "type", "equipment"]);
-      const deptKey = findColumn(row, ["department", "dept"]);
-      const statusKey = findColumn(row, ["status", "condition"]);
-      const sectionKey = findColumn(row, ["section", "category", "group"]);
-      const notesKey = findColumn(row, ["notes", "remarks", "comment", "comments"]);
-
-      const item = {
-        fleetNo: normalizeText(fleetNoKey ? row[fleetNoKey] : ""),
-        registration: normalizeText(regKey ? row[regKey] : ""),
-        machineType: normalizeText(machineKey ? row[machineKey] : ""),
-        department: normalizeText(deptKey ? row[deptKey] : "Unassigned"),
-        status: normalizeText(statusKey ? row[statusKey] : "Available"),
-        section: normalizeText(sectionKey ? row[sectionKey] : ""),
-        notes: normalizeText(notesKey ? row[notesKey] : "")
-      };
-
-      if(!item.fleetNo && item.registration) item.fleetNo = item.registration;
-      if(!item.registration && knownLightVehicles.has(cleanUpper(item.fleetNo))) item.registration = item.fleetNo;
-      if(!item.machineType && item.registration) item.machineType = "Light Vehicle";
-
-      item.section = classifySection(item);
-      return item;
-    }
-
-    function setData(data){
-      rawFleetData = data.map(item => ({
-        fleetNo: item.fleetNo || "",
-        registration: item.registration || "",
-        machineType: item.machineType || "",
-        department: item.department || "Unassigned",
-        status: item.status || "Available",
-        section: classifySection(item),
-        notes: item.notes || ""
-      }));
-      renderAll();
-    }
-
-    function getIncludedFleet(){
-      return rawFleetData.filter(item =>
-        item.section !== "Major Repairs" && item.section !== "Long Term Rebuild"
-      );
-    }
-
-    function getExcludedFleet(){
-      return rawFleetData.filter(item =>
-        item.section === "Major Repairs" || item.section === "Long Term Rebuild"
-      );
-    }
-
-    function getLightVehicles(){
-      return rawFleetData.filter(item => item.section === "Light Vehicles");
-    }
-
-    function getMainFleet(){
-      return rawFleetData.filter(item =>
-        item.section !== "Light Vehicles" &&
-        item.section !== "Major Repairs" &&
-        item.section !== "Long Term Rebuild"
-      );
-    }
-
-    function calculateSummary(){
-      const included = getIncludedFleet();
-      const excluded = getExcludedFleet();
-      const available = included.filter(item => isAvailableStatus(item.status)).length;
-      const unavailable = included.length - available;
+    return Object.entries(groups).map(([department, items]) => {
+      const active = items.filter((m) => !m.majorRepair);
+      const available = active.filter((m) => m.status.toLowerCase().includes("avail")).length;
+      const percent = active.length === 0 ? 0 : Math.round((available / active.length) * 100);
 
       return {
-        total: included.length,
+        department,
+        total: items.length,
+        active: active.length,
         available,
-        unavailable,
-        excluded: excluded.length
+        percent
       };
-    }
-
-    function calculateDepartmentData(){
-      const included = getIncludedFleet();
-      const map = {};
-
-      included.forEach(item => {
-        const dept = item.department || "Unassigned";
-        if(!map[dept]){
-          map[dept] = { total:0, available:0 };
-        }
-        map[dept].total += 1;
-        if(isAvailableStatus(item.status)) map[dept].available += 1;
-      });
-
-      const labels = Object.keys(map);
-      const values = labels.map(label => {
-        const row = map[label];
-        return row.total ? Number(((row.available / row.total) * 100).toFixed(1)) : 0;
-      });
-
-      return { labels, values };
-    }
-
-    function updateSummaryCards(){
-      const s = calculateSummary();
-      document.getElementById("totalFleet").textContent = s.total;
-      document.getElementById("availableFleet").textContent = s.available;
-      document.getElementById("unavailableFleet").textContent = s.unavailable;
-      document.getElementById("excludedFleet").textContent = s.excluded;
-      document.getElementById("availablePct").textContent = s.total ? `${((s.available / s.total) * 100).toFixed(1)}% available` : "0%";
-      document.getElementById("unavailablePct").textContent = s.total ? `${((s.unavailable / s.total) * 100).toFixed(1)}% unavailable` : "0%";
-
-      document.getElementById("majorRepairsCount").textContent =
-        rawFleetData.filter(x => x.section === "Major Repairs").length;
-
-      document.getElementById("longTermCount").textContent =
-        rawFleetData.filter(x => x.section === "Long Term Rebuild").length;
-    }
-
-    function renderCharts(){
-      const summary = calculateSummary();
-      const ctx1 = document.getElementById("availabilityChart").getContext("2d");
-
-      if(availabilityChart) availabilityChart.destroy();
-      availabilityChart = new Chart(ctx1, {
-        type: "doughnut",
-        data: {
-          labels: ["Available", "Unavailable", "Excluded"],
-          datasets: [{
-            data: [summary.available, summary.unavailable, summary.excluded],
-            backgroundColor: ["#20bf6b", "#eb3b5a", "#f7b731"],
-            borderWidth: 0
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: {
-              labels: {
-                color: "#ffffff"
-              }
-            }
-          }
-        }
-      });
-
-      const dept = calculateDepartmentData();
-      const ctx2 = document.getElementById("departmentChart").getContext("2d");
-
-      if(departmentChart) departmentChart.destroy();
-      departmentChart = new Chart(ctx2, {
-        type: "bar",
-        data: {
-          labels: dept.labels,
-          datasets: [{
-            label: "Availability %",
-            data: dept.values,
-            backgroundColor: "#ff6a00",
-            borderRadius: 8
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          scales: {
-            y: {
-              beginAtZero: true,
-              max: 100,
-              ticks: { color:"#ffffff" },
-              grid: { color:"rgba(255,255,255,0.08)" }
-            },
-            x: {
-              ticks: { color:"#ffffff" },
-              grid: { color:"rgba(255,255,255,0.04)" }
-            }
-          },
-          plugins: {
-            legend: {
-              labels: { color:"#ffffff" }
-            }
-          }
-        }
-      });
-    }
-
-    function renderLightVehiclePills(){
-      const lv = getLightVehicles();
-      const departments = [...new Set(lv.map(x => x.department || "Unassigned"))];
-      const wrap = document.getElementById("lightVehiclePills");
-      wrap.innerHTML = "";
-
-      departments.forEach(dept => {
-        const total = lv.filter(x => x.department === dept).length;
-        const available = lv.filter(x => x.department === dept && isAvailableStatus(x.status)).length;
-        const pill = document.createElement("span");
-        pill.className = "tiny-pill";
-        pill.textContent = `${dept}: ${available}/${total} available`;
-        wrap.appendChild(pill);
-      });
-
-      if(!departments.length){
-        wrap.innerHTML = `<span class="tiny-pill">No light vehicles loaded</span>`;
-      }
-    }
-
-    function actionButtons(index){
-      const admin = document.getElementById("adminMode").checked;
-      if(!admin) return "";
-
-      return `
-        <div class="action-group">
-          <button class="small-btn secondary" onclick="moveSection(${index}, 'Main Fleet')">Main</button>
-          <button class="small-btn secondary" onclick="moveSection(${index}, 'Light Vehicles')">Light</button>
-          <button class="small-btn secondary" onclick="moveSection(${index}, 'Major Repairs')">Major</button>
-          <button class="small-btn danger" onclick="moveSection(${index}, 'Long Term Rebuild')">Rebuild</button>
-        </div>
-      `;
-    }
-
-    function renderTables(){
-      const admin = document.getElementById("adminMode").checked;
-      document.querySelectorAll(".admin-only").forEach(el => {
-        el.classList.toggle("hidden", !admin);
-      });
-
-      const lightBody = document.getElementById("lightVehiclesTable");
-      const excludedBody = document.getElementById("excludedTable");
-      const mainBody = document.getElementById("mainFleetTable");
-      const allBody = document.getElementById("allFleetTable");
-
-      lightBody.innerHTML = "";
-      excludedBody.innerHTML = "";
-      mainBody.innerHTML = "";
-      allBody.innerHTML = "";
-
-      getLightVehicles().forEach(item => {
-        const idx = rawFleetData.indexOf(item);
-        lightBody.innerHTML += `
-          <tr>
-            <td>${item.registration || item.fleetNo}</td>
-            <td>${item.department}</td>
-            <td>${getStatusBadge(item.status)}</td>
-            <td>${item.section}</td>
-            <td>${item.notes}</td>
-            <td class="${admin ? "" : "hidden"}">${actionButtons(idx)}</td>
-          </tr>
-        `;
-      });
-
-      getExcludedFleet().forEach(item => {
-        const idx = rawFleetData.indexOf(item);
-        excludedBody.innerHTML += `
-          <tr>
-            <td>${item.fleetNo || item.registration}</td>
-            <td>${item.department}</td>
-            <td>${getStatusBadge(item.status)}</td>
-            <td>${item.section}</td>
-            <td>${item.notes}</td>
-            <td class="${admin ? "" : "hidden"}">${actionButtons(idx)}</td>
-          </tr>
-        `;
-      });
-
-      getMainFleet().forEach(item => {
-        const idx = rawFleetData.indexOf(item);
-        mainBody.innerHTML += `
-          <tr>
-            <td>${item.fleetNo || item.registration}</td>
-            <td>${item.machineType}</td>
-            <td>${item.department}</td>
-            <td>${getStatusBadge(item.status)}</td>
-            <td>${item.section}</td>
-            <td>${item.notes}</td>
-            <td class="${admin ? "" : "hidden"}">${actionButtons(idx)}</td>
-          </tr>
-        `;
-      });
-
-      rawFleetData.forEach(item => {
-        const included = item.section !== "Major Repairs" && item.section !== "Long Term Rebuild";
-        allBody.innerHTML += `
-          <tr>
-            <td>${item.fleetNo || item.registration}</td>
-            <td>${item.machineType}</td>
-            <td>${item.department}</td>
-            <td>${getStatusBadge(item.status)}</td>
-            <td>${item.section}</td>
-            <td>${included ? "Yes" : "No"}</td>
-            <td>${item.notes}</td>
-          </tr>
-        `;
-      });
-    }
-
-    function renderAll(){
-      updateSummaryCards();
-      renderCharts();
-      renderLightVehiclePills();
-      renderTables();
-    }
-
-    function searchFleet(){
-      const value = cleanUpper(document.getElementById("searchFleet").value);
-      const output = document.getElementById("searchOutput");
-
-      if(!value){
-        output.classList.add("hidden");
-        output.innerHTML = "";
-        return;
-      }
-
-      const found = rawFleetData.find(item =>
-        cleanUpper(item.fleetNo).includes(value) ||
-        cleanUpper(item.registration).includes(value)
-      );
-
-      if(!found){
-        output.classList.remove("hidden");
-        output.innerHTML = `<strong>No result found</strong>`;
-        return;
-      }
-
-      output.classList.remove("hidden");
-      output.innerHTML = `
-        <strong>${found.fleetNo || found.registration}</strong><br>
-        Machine Type: ${found.machineType || "-"}<br>
-        Registration: ${found.registration || "-"}<br>
-        Department: ${found.department || "-"}<br>
-        Status: ${found.status || "-"}<br>
-        Section: ${found.section || "-"}<br>
-        Notes: ${found.notes || "-"}
-      `;
-    }
-
-    function handleFileUpload(event){
-      const file = event.target.files[0];
-      if(!file) return;
-
-      const reader = new FileReader();
-      reader.onload = function(e){
-        const data = new Uint8Array(e.target.result);
-        const workbook = XLSX.read(data, { type:"array" });
-        const sheetName = workbook.SheetNames[0];
-        const sheet = workbook.Sheets[sheetName];
-        const json = XLSX.utils.sheet_to_json(sheet, { defval:"" });
-
-        const mapped = json
-          .map(row => prepareRow(row))
-          .filter(row => row.fleetNo || row.registration || row.machineType);
-
-        setData(mapped);
-      };
-      reader.readAsArrayBuffer(file);
-    }
-
-    function resetAll(){
-      rawFleetData = [];
-      document.getElementById("excelFile").value = "";
-      document.getElementById("searchFleet").value = "";
-      document.getElementById("searchOutput").classList.add("hidden");
-      document.getElementById("searchOutput").innerHTML = "";
-      renderAll();
-    }
-
-    window.moveSection = function(index, section){
-      if(typeof rawFleetData[index] === "undefined") return;
-      rawFleetData[index].section = section;
-
-      if(section === "Light Vehicles" && !rawFleetData[index].machineType){
-        rawFleetData[index].machineType = "Light Vehicle";
-      }
-      renderAll();
-    };
-
-    document.getElementById("excelFile").addEventListener("change", handleFileUpload);
-    document.getElementById("searchBtn").addEventListener("click", searchFleet);
-    document.getElementById("searchFleet").addEventListener("keydown", (e) => {
-      if(e.key === "Enter") searchFleet();
     });
-    document.getElementById("adminMode").addEventListener("change", renderTables);
-    document.getElementById("loadSampleBtn").addEventListener("click", () => setData(sampleData));
-    document.getElementById("resetBtn").addEventListener("click", resetAll);
+  }, [machines]);
 
-    setData(sampleData);
-  </script>
-</body>
-</html>
+  const updateMachineField = (
+    fleet: string,
+    field: keyof Machine,
+    value: string | number | boolean
+  ) => {
+    const updated = machines.map((machine) =>
+      machine.fleet === fleet
+        ? { ...machine, [field]: value, updated: new Date().toLocaleDateString() }
+        : machine
+    );
+    saveMachines(updated);
+  };
+
+  const setMajorRepair = (fleet: string, enabled: boolean) => {
+    const updated = machines.map((machine) => {
+      if (machine.fleet !== fleet) return machine;
+
+      return {
+        ...machine,
+        majorRepair: enabled,
+        status: enabled ? "Major Repair" : "Available",
+        repairReason: enabled ? machine.repairReason : "",
+        sparesEta: enabled ? machine.sparesEta : "",
+        updated: new Date().toLocaleDateString()
+      };
+    });
+
+    saveMachines(updated);
+  };
+
+  const handleExport = () => {
+    const headers = [
+      "fleet",
+      "type",
+      "machineType",
+      "status",
+      "location",
+      "department",
+      "availability",
+      "majorRepair",
+      "repairReason",
+      "sparesEta",
+      "updated"
+    ];
+
+    const rows = machines.map((machine) =>
+      [
+        machine.fleet,
+        machine.type,
+        machine.machineType,
+        machine.status,
+        machine.location,
+        machine.department,
+        machine.availability,
+        machine.majorRepair,
+        machine.repairReason,
+        machine.sparesEta,
+        machine.updated
+      ].join(",")
+    );
+
+    const csvContent = [headers.join(","), ...rows].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "turbo-machine-register.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  const handleRefresh = () => {
+    const stored = localStorage.getItem("turboMachineData");
+    if (stored) {
+      try {
+        setMachines(JSON.parse(stored));
+      } catch {
+        saveMachines(sampleData);
+      }
+    }
+  };
+
+  const handleSpreadsheetUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setFileName(file.name);
+
+    try {
+      const lowerName = file.name.toLowerCase();
+
+      if (lowerName.endsWith(".csv")) {
+        const text = await file.text();
+        const parsed = parseCSV(text);
+
+        if (parsed.length > 0) {
+          saveMachines(parsed);
+          setSheetNames(["CSV"]);
+          setWorkbookSheets([{ name: "CSV", rows: [] }]);
+          setActiveSheet("CSV");
+        } else {
+          alert("CSV uploaded but no valid rows were found.");
+        }
+        return;
+      }
+
+      if (
+        lowerName.endsWith(".xlsx") ||
+        lowerName.endsWith(".xls") ||
+        lowerName.endsWith(".xlsm")
+      ) {
+        const buffer = await file.arrayBuffer();
+        const workbook = XLSX.read(buffer, { type: "array" });
+
+        const sheets: WorkbookSheetData[] = workbook.SheetNames.map((name) => {
+          const sheet = workbook.Sheets[name];
+          const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
+            defval: ""
+          });
+          return { name, rows };
+        });
+
+        setWorkbookSheets(sheets);
+        setSheetNames(workbook.SheetNames);
+
+        const preferredSheet =
+          sheets.find((s) => s.name === "Summary") ||
+          sheets.find((s) => s.name === "Summary (Excl Tyre)") ||
+          sheets.find((s) => isSummaryLikeSheet(s.rows)) ||
+          sheets[0];
+
+        if (!preferredSheet) {
+          alert("No usable sheets found.");
+          return;
+        }
+
+        const parsed = parseSelectedSheet(preferredSheet.name, preferredSheet.rows);
+
+        if (parsed.length > 0) {
+          saveMachines(parsed);
+          setActiveSheet(preferredSheet.name);
+        } else {
+          alert("Spreadsheet loaded, but the selected sheet did not contain machine summary rows.");
+        }
+
+        return;
+      }
+
+      alert("Please upload .xlsx, .xls, .xlsm, or .csv");
+    } catch (error) {
+      console.error(error);
+      alert("Could not read spreadsheet file.");
+    }
+  };
+
+  const loadSheetByName = (sheetName: string) => {
+    const selected = workbookSheets.find((s) => s.name === sheetName);
+    if (!selected) return;
+
+    const parsed = parseSelectedSheet(selected.name, selected.rows);
+
+    if (parsed.length > 0) {
+      saveMachines(parsed);
+      setActiveSheet(sheetName);
+    } else {
+      alert(`Sheet "${sheetName}" does not contain machine summary rows for the dashboard.`);
+    }
+  };
+
+  const scrollToBottomRegister = () => {
+    const el = document.getElementById("bottom-register");
+    if (el) el.scrollIntoView({ behavior: "smooth" });
+  };
+
+  const showBelow85Only = () => {
+    setSelectedType("ALL");
+    setSearch("");
+    const el = document.getElementById("bottom-register");
+    if (el) el.scrollIntoView({ behavior: "smooth" });
+  };
+
+  const showMajorRepairsOnly = () => {
+    setSelectedType("ALL");
+    setSearch("major repair");
+    const el = document.getElementById("major-repairs");
+    if (el) el.scrollIntoView({ behavior: "smooth" });
+  };
+
+  return (
+    <div className="page">
+      <div className="shell">
+        <header className="topbar">
+          <div className="logoBox">
+            <div className="logoText">TURBO ENERGY</div>
+          </div>
+
+          <div className="titleWrap">
+            <h1>Turbo-Energy Machine Availability</h1>
+            <p>Live fleet dashboard with admin movements, departments, and major repairs</p>
+          </div>
+
+          <div className="topActions">
+            <label htmlFor="csvUploadTop" className="pillButton primaryPill">
+              Upload File
+            </label>
+            <button className="pillButton" onClick={showBelow85Only}>
+              Units Below 85%
+            </button>
+            <button className="pillButton" onClick={showMajorRepairsOnly}>
+              Major Repairs
+            </button>
+            <button className="pillButton" onClick={scrollToBottomRegister}>
+              Bottom Register
+            </button>
+          </div>
+        </header>
+
+        <main className="dashboardGrid">
+          <section className="leftColumn">
+            <div className="kpiGrid">
+              <KpiCard icon="🏗" title="TOTAL MACHINES" value={totalMachines} note="All units in the register" />
+              <KpiCard icon="✅" title="AVAILABLE" value={availableMachines} note="Active units marked available" />
+              <KpiCard icon="🔧" title="REPAIRS / DOWN" value={repairsMachines} note="Active units needing attention" />
+              <KpiCard icon="📍" title="LOCATIONS" value={locationCount} note="Distinct operating locations" />
+            </div>
+
+            <section className="panel">
+              <div className="panelHeader">
+                <div>
+                  <h2>Admin Upload and Save</h2>
+                  <p>Upload spreadsheet XLSX, XLS, XLSM, or CSV</p>
+                </div>
+
+                <div className="panelButtons">
+                  <button className="actionButton orangeButton" onClick={handleExport}>
+                    Export CSV
+                  </button>
+                  <button className="actionButton whiteButton" onClick={handlePrint}>
+                    Print report
+                  </button>
+                </div>
+              </div>
+
+              <div className="uploadArea">
+                <input
+                  id="csvUploadTop"
+                  type="file"
+                  accept=".xlsx,.xls,.xlsm,.csv"
+                  onChange={handleSpreadsheetUpload}
+                  className="hiddenInput"
+                />
+                <label htmlFor="csvUploadTop" className="filePicker">
+                  Choose File
+                </label>
+                <span className="fileName">{fileName}</span>
+              </div>
+
+              <div className="infoBox">
+                Excel upload now uses <strong>Summary</strong> first, then <strong>Summary (Excl Tyre)</strong>. Registration-style light vehicles are grouped into <strong>LV</strong>. The chart now scrolls inside its own box and no longer stretches the whole page.
+              </div>
+            </section>
+
+            <section className="panel">
+              <div className="sectionTitleRow">
+                <h2>Availability by Machine Type</h2>
+                <span>% Available</span>
+              </div>
+
+              <div className="chartPanel">
+                <div className="chartGridLines">
+                  <div><span>100%</span></div>
+                  <div><span>80%</span></div>
+                  <div><span>60%</span></div>
+                  <div><span>40%</span></div>
+                  <div><span>20%</span></div>
+                </div>
+
+                <div className="barsArea">
+                  {groupedMachineTypeData.map((item, index) => (
+                    <div key={item.type} className="barGroup">
+                      <div className="barValue">{item.availability}%</div>
+                      <div
+                        className={`bar ${index % 4 === 3 ? "highlightBar" : ""}`}
+                        style={{ height: `${Math.max(item.availability * 1.7, 18)}px` }}
+                      />
+                      <div className="barLabel">{item.type}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <p className="footNote">
+                Major repair units are excluded from the machine type availability graph.
+              </p>
+            </section>
+
+            <section className="panel">
+              <div className="sectionHeading">
+                <h2>Department Availability</h2>
+                <p>Availability percentage by department with major repairs excluded.</p>
+              </div>
+
+              <div className="departmentGrid">
+                {departmentAvailability.map((item) => (
+                  <div key={item.department} className="departmentCard">
+                    <div className="departmentHead">
+                      <h3>{item.department}</h3>
+                      <span>{item.percent}%</span>
+                    </div>
+                    <div className="departmentBarTrack">
+                      <div className="departmentBarFill" style={{ width: `${item.percent}%` }} />
+                    </div>
+                    <div className="departmentMeta">
+                      <span>Total: {item.total}</span>
+                      <span>Active: {item.active}</span>
+                      <span>Available: {item.available}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section className="panel" id="major-repairs">
+              <div className="sectionHeading">
+                <h2>Machines on Major Repairs</h2>
+                <p>These units are removed from the main availability percentage.</p>
+              </div>
+
+              <div className="majorRepairSummary">
+                <div className="majorBadge">{majorRepairsMachines}</div>
+                <div>
+                  <strong>{majorRepairsMachines}</strong> unit(s) on major repair
+                </div>
+              </div>
+
+              <div className="tableWrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Fleet</th>
+                      <th>Machine</th>
+                      <th>Department</th>
+                      <th>Reason</th>
+                      <th>Spares ETA</th>
+                      <th>Status</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {majorRepairsList.length === 0 ? (
+                      <tr>
+                        <td colSpan={7}>No machines on major repair.</td>
+                      </tr>
+                    ) : (
+                      majorRepairsList.map((machine) => (
+                        <tr key={machine.fleet}>
+                          <td>{machine.fleet}</td>
+                          <td>{machine.machineType}</td>
+                          <td>{machine.department}</td>
+                          <td>{machine.repairReason || "-"}</td>
+                          <td>{machine.sparesEta || "-"}</td>
+                          <td>
+                            <span className="statusPill statusMajor">Major Repair</span>
+                          </td>
+                          <td>
+                            <button
+                              className="miniAction"
+                              onClick={() => setMajorRepair(machine.fleet, false)}
+                            >
+                              Return to main list
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section className="panel">
+              <div className="sectionHeading">
+                <h2>Top Machine Summary</h2>
+                <p>Quick summary of active machines only.</p>
+              </div>
+
+              <div className="tableWrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Fleet Number</th>
+                      <th>Machine Type</th>
+                      <th>Status</th>
+                      <th>Location</th>
+                      <th>Availability %</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {topSummary.map((machine) => (
+                      <tr key={machine.fleet}>
+                        <td>{machine.fleet}</td>
+                        <td>{machine.machineType}</td>
+                        <td>
+                          <span className={`statusPill ${getStatusClass(machine.status, machine.majorRepair)}`}>
+                            {machine.status}
+                          </span>
+                        </td>
+                        <td>{machine.location}</td>
+                        <td>{machine.availability}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </section>
+
+          <aside className="rightColumn">
+            <section className="panel">
+              <div className="sectionHeading">
+                <h2>Notes / Summary Panel</h2>
+              </div>
+
+              <div className="notesStack">
+                <div className="noteCard">
+                  <div className="noteIcon">🗂</div>
+                  <div>
+                    <h3>Main availability</h3>
+                    <p>Major repair units are automatically excluded from top KPI percentages and type graphs.</p>
+                  </div>
+                </div>
+
+                <div className="noteCard">
+                  <div className="noteIcon">📄</div>
+                  <div>
+                    <h3>Excel upload fixed</h3>
+                    <p>Workbook now uses Summary sheets first instead of the event log sheet.</p>
+                  </div>
+                </div>
+
+                <div className="mutedCard">
+                  Light vehicle registrations are grouped into LV and the chart stays inside its own panel.
+                </div>
+              </div>
+            </section>
+
+            <section className="panel">
+              <div className="sectionHeading">
+                <h2>Admin Machine Controls</h2>
+                <p>Move machines to major repair, assign departments, and add notes.</p>
+              </div>
+
+              <div className="adminList">
+                {machines.map((machine) => (
+                  <div key={machine.fleet} className="adminCard">
+                    <div className="adminTop">
+                      <div>
+                        <strong>{machine.fleet}</strong> - {machine.machineType}
+                      </div>
+                      <span className={`statusPill ${getStatusClass(machine.status, machine.majorRepair)}`}>
+                        {machine.majorRepair ? "Major Repair" : machine.status}
+                      </span>
+                    </div>
+
+                    <div className="adminGrid">
+                      <div>
+                        <label>Department</label>
+                        <select
+                          value={machine.department}
+                          onChange={(e) => updateMachineField(machine.fleet, "department", e.target.value)}
+                          className="selectInput"
+                        >
+                          {departments.map((dep) => (
+                            <option key={dep} value={dep}>{dep}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label>Status</label>
+                        <select
+                          value={machine.majorRepair ? "Major Repair" : machine.status}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            if (value === "Major Repair") {
+                              setMajorRepair(machine.fleet, true);
+                            } else {
+                              updateMachineField(machine.fleet, "status", value);
+                              if (machine.majorRepair) setMajorRepair(machine.fleet, false);
+                            }
+                          }}
+                          className="selectInput"
+                        >
+                          <option value="Available">Available</option>
+                          <option value="Repair">Repair</option>
+                          <option value="Maintenance">Maintenance</option>
+                          <option value="Down">Down</option>
+                          <option value="Major Repair">Major Repair</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label>Availability %</label>
+                        <input
+                          className="textInput"
+                          type="number"
+                          value={machine.availability}
+                          onChange={(e) =>
+                            updateMachineField(machine.fleet, "availability", Number(e.target.value || 0))
+                          }
+                        />
+                      </div>
+
+                      <div>
+                        <label>Reason</label>
+                        <input
+                          className="textInput"
+                          type="text"
+                          value={machine.repairReason}
+                          placeholder="Reason for major repair"
+                          onChange={(e) => updateMachineField(machine.fleet, "repairReason", e.target.value)}
+                        />
+                      </div>
+
+                      <div>
+                        <label>Spares ETA</label>
+                        <input
+                          className="textInput"
+                          type="text"
+                          value={machine.sparesEta}
+                          placeholder="e.g. 30 Apr 2026"
+                          onChange={(e) => updateMachineField(machine.fleet, "sparesEta", e.target.value)}
+                        />
+                      </div>
+
+                      <div>
+                        <label>Location</label>
+                        <input
+                          className="textInput"
+                          type="text"
+                          value={machine.location}
+                          onChange={(e) => updateMachineField(machine.fleet, "location", e.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="adminActions">
+                      {!machine.majorRepair ? (
+                        <button
+                          className="miniAction orangeMini"
+                          onClick={() => setMajorRepair(machine.fleet, true)}
+                        >
+                          Move to major repair
+                        </button>
+                      ) : (
+                        <button
+                          className="miniAction"
+                          onClick={() => setMajorRepair(machine.fleet, false)}
+                        >
+                          Remove from major repair
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section className="panel" id="bottom-register">
+              <div className="sectionHeading">
+                <h2>Bottom Machine by-Machine Register</h2>
+                <p>Full register with search and filters.</p>
+              </div>
+
+              <div className="controlsRow">
+                <select
+                  value={selectedType}
+                  onChange={(e) => setSelectedType(e.target.value)}
+                  className="selectInput"
+                >
+                  {typeOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option === "ALL" ? "All Machines" : option}
+                    </option>
+                  ))}
+                </select>
+
+                <div className="searchWrap">
+                  <span>⌕</span>
+                  <input
+                    type="text"
+                    placeholder="Type fleet number or type..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
+                </div>
+
+                <button className="pillButton solidButton" onClick={handleRefresh}>
+                  Refresh data
+                </button>
+              </div>
+
+              <div className="tableWrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Fleet Number</th>
+                      <th>Type</th>
+                      <th>Status</th>
+                      <th>Department</th>
+                      <th>Location</th>
+                      <th>Updated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredMachines.map((machine) => (
+                      <tr key={`${machine.fleet}-${machine.updated}`}>
+                        <td>{machine.fleet}</td>
+                        <td>{machine.machineType}</td>
+                        <td>
+                          <span className={`statusPill ${getStatusClass(machine.status, machine.majorRepair)}`}>
+                            {machine.majorRepair ? "Major Repair" : machine.status}
+                          </span>
+                        </td>
+                        <td>{machine.department}</td>
+                        <td>{machine.location}</td>
+                        <td>{machine.updated}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="bottomLine">
+                <span>Turbo Energy - Machine Availability Dashboard</span>
+                <span>
+                  Last updated: {new Date().toLocaleDateString()} {new Date().toLocaleTimeString()}
+                </span>
+              </div>
+            </section>
+          </aside>
+        </main>
+
+        {sheetNames.length > 0 && (
+          <section className="sheetTabsPanel">
+            <div className="sheetTabsHeader">
+              <h3>Workbook Sheets</h3>
+              <p>Click a sheet tab to load it into the dashboard.</p>
+            </div>
+
+            <div className="sheetTabs">
+              {sheetNames.map((name) => (
+                <button
+                  key={name}
+                  className={`sheetTab ${activeSheet === name ? "activeSheetTab" : ""}`}
+                  onClick={() => loadSheetByName(name)}
+                >
+                  {name}
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
+      </div>
+
+      <style jsx>{`
+        .page {
+          min-height: 100vh;
+          color: #f3f7ff;
+          background:
+            radial-gradient(circle at top left, rgba(90, 130, 255, 0.18), transparent 24%),
+            radial-gradient(circle at top right, rgba(242, 154, 31, 0.14), transparent 22%),
+            linear-gradient(180deg, #091c43 0%, #081733 100%);
+          font-family: Arial, Helvetica, sans-serif;
+        }
+
+        .shell {
+          width: min(1380px, calc(100% - 24px));
+          margin: 0 auto;
+          padding: 0 0 24px;
+          overflow-x: hidden;
+        }
+
+        .topbar {
+          display: grid;
+          grid-template-columns: 370px 1fr auto;
+          gap: 18px;
+          align-items: center;
+          padding: 14px 18px;
+          background: linear-gradient(180deg, rgba(23, 50, 95, 0.96), rgba(13, 34, 74, 0.96));
+          border: 1px solid rgba(255,255,255,0.09);
+          border-radius: 0 0 18px 18px;
+          box-shadow: 0 18px 40px rgba(0,0,0,0.24);
+        }
+
+        .logoBox {
+          background: rgba(255,255,255,0.92);
+          min-height: 62px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 8px 16px;
+        }
+
+        .logoText {
+          color: #8a9abb;
+          font-size: 34px;
+          line-height: 1;
+          font-weight: 900;
+          letter-spacing: 1px;
+        }
+
+        .titleWrap {
+          text-align: center;
+        }
+
+        .titleWrap h1 {
+          margin: 0;
+          font-size: 20px;
+          font-weight: 800;
+        }
+
+        .titleWrap p {
+          margin: 6px 0 0;
+          font-size: 14px;
+          color: #c8d4ea;
+        }
+
+        .topActions {
+          display: flex;
+          gap: 12px;
+          flex-wrap: wrap;
+          justify-content: flex-end;
+        }
+
+        .pillButton {
+          border: 1px solid rgba(255,255,255,0.14);
+          background: rgba(10, 23, 52, 0.5);
+          color: white;
+          border-radius: 999px;
+          padding: 12px 18px;
+          font-size: 15px;
+          font-weight: 800;
+          cursor: pointer;
+        }
+
+        .primaryPill {
+          background: linear-gradient(180deg, #ffb24c, #f29a1f);
+          box-shadow: 0 10px 22px rgba(242,154,31,0.26);
+        }
+
+        .solidButton {
+          background: rgba(14, 35, 74, 0.95);
+        }
+
+        .dashboardGrid {
+          display: grid;
+          grid-template-columns: minmax(0, 1.5fr) minmax(320px, 1fr);
+          gap: 16px;
+          margin-top: 14px;
+          min-width: 0;
+        }
+
+        .leftColumn,
+        .rightColumn {
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+          min-width: 0;
+        }
+
+        .panel,
+        .tableWrap,
+        .chartPanel {
+          min-width: 0;
+        }
+
+        .kpiGrid {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 12px;
+        }
+
+        .kpiCard {
+          background: rgba(255,255,255,0.97);
+          color: #17325f;
+          border-radius: 22px;
+          padding: 18px;
+          display: grid;
+          grid-template-columns: 56px 1fr;
+          gap: 14px;
+          align-items: center;
+          box-shadow: 0 18px 40px rgba(0,0,0,0.22);
+          min-width: 0;
+        }
+
+        .kpiIcon {
+          width: 52px;
+          height: 52px;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: rgba(79, 140, 255, 0.15);
+          font-size: 24px;
+        }
+
+        .kpiText h4 {
+          margin: 0 0 6px;
+          font-size: 13px;
+          font-weight: 800;
+        }
+
+        .kpiValue {
+          margin: 0 0 8px;
+          font-size: 22px;
+          line-height: 1;
+          font-weight: 900;
+        }
+
+        .kpiText p {
+          margin: 0;
+          font-size: 13px;
+          color: #5f7196;
+        }
+
+        .panel {
+          background: linear-gradient(180deg, rgba(17, 42, 87, 0.92), rgba(10, 29, 63, 0.94));
+          border: 1px solid rgba(255,255,255,0.1);
+          border-radius: 22px;
+          padding: 18px;
+          box-shadow: 0 18px 40px rgba(0,0,0,0.22);
+        }
+
+        .panelHeader {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          align-items: flex-start;
+          margin-bottom: 14px;
+        }
+
+        .panelHeader h2,
+        .sectionHeading h2,
+        .sectionTitleRow h2 {
+          margin: 0;
+          font-size: 18px;
+          font-weight: 900;
+        }
+
+        .panelHeader p,
+        .sectionHeading p {
+          margin: 6px 0 0;
+          color: #c8d4ea;
+          font-size: 14px;
+        }
+
+        .panelButtons {
+          display: flex;
+          gap: 10px;
+          flex-wrap: wrap;
+        }
+
+        .actionButton {
+          border: none;
+          border-radius: 14px;
+          padding: 11px 18px;
+          font-size: 14px;
+          font-weight: 800;
+          cursor: pointer;
+        }
+
+        .orangeButton {
+          background: linear-gradient(180deg, #ffb24c, #f29a1f);
+          color: white;
+        }
+
+        .whiteButton {
+          background: rgba(255,255,255,0.97);
+          color: #17325f;
+        }
+
+        .uploadArea {
+          border: 1px solid rgba(255,255,255,0.12);
+          border-radius: 14px;
+          background: rgba(255,255,255,0.03);
+          padding: 14px;
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          flex-wrap: wrap;
+        }
+
+        .hiddenInput {
+          display: none;
+        }
+
+        .filePicker {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 12px;
+          padding: 10px 16px;
+          background: rgba(255,255,255,0.95);
+          color: #17325f;
+          font-size: 14px;
+          font-weight: 800;
+          cursor: pointer;
+        }
+
+        .fileName {
+          color: #d9e4f7;
+          font-size: 14px;
+          font-weight: 700;
+          word-break: break-word;
+        }
+
+        .infoBox {
+          margin-top: 12px;
+          border: 1px solid rgba(255,255,255,0.1);
+          border-radius: 14px;
+          padding: 14px;
+          background: rgba(255,255,255,0.03);
+          color: #c8d4ea;
+          font-size: 14px;
+          line-height: 1.45;
+        }
+
+        .sectionTitleRow {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 12px;
+          margin-bottom: 12px;
+        }
+
+        .sectionTitleRow span {
+          font-size: 14px;
+          font-weight: 800;
+        }
+
+        .chartPanel {
+          position: relative;
+          min-height: 310px;
+          border: 1px solid rgba(255,255,255,0.1);
+          border-radius: 16px;
+          padding: 20px 20px 16px 56px;
+          background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.02));
+          overflow-x: auto;
+          overflow-y: hidden;
+          max-width: 100%;
+        }
+
+        .chartGridLines {
+          position: absolute;
+          left: 56px;
+          right: 18px;
+          top: 18px;
+          bottom: 54px;
+          display: flex;
+          flex-direction: column;
+          justify-content: space-between;
+          pointer-events: none;
+        }
+
+        .chartGridLines div {
+          position: relative;
+          border-top: 1px dashed rgba(255,255,255,0.12);
+        }
+
+        .chartGridLines span {
+          position: absolute;
+          left: -54px;
+          top: -8px;
+          font-size: 12px;
+          font-weight: 700;
+          color: #c8d4ea;
+        }
+
+        .barsArea {
+          position: relative;
+          width: max-content;
+          min-width: 100%;
+          height: 270px;
+          display: flex;
+          justify-content: flex-start;
+          align-items: flex-end;
+          gap: 14px;
+          z-index: 1;
+          padding-right: 12px;
+        }
+
+        .barGroup {
+          width: 58px;
+          min-width: 58px;
+          max-width: 58px;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: flex-end;
+          gap: 8px;
+        }
+
+        .barValue {
+          font-size: 15px;
+          font-weight: 900;
+        }
+
+        .bar {
+          width: 42px;
+          border-radius: 14px 14px 4px 4px;
+          background: linear-gradient(180deg, rgba(225,235,255,0.98), rgba(169,189,235,0.92));
+          box-shadow: inset 0 1px 0 rgba(255,255,255,0.45), 0 10px 18px rgba(0,0,0,0.16);
+        }
+
+        .highlightBar {
+          background: linear-gradient(180deg, #bed6ff, #6f9fff);
+        }
+
+        .barLabel {
+          font-size: 12px;
+          font-weight: 900;
+          color: #eaf0ff;
+          text-align: center;
+          white-space: nowrap;
+        }
+
+        .footNote {
+          margin: 12px 0 0;
+          font-size: 14px;
+          color: #c8d4ea;
+        }
+
+        .sectionHeading {
+          margin-bottom: 12px;
+        }
+
+        .departmentGrid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 12px;
+        }
+
+        .departmentCard {
+          border: 1px solid rgba(255,255,255,0.1);
+          border-radius: 16px;
+          padding: 14px;
+          background: rgba(255,255,255,0.04);
+          min-width: 0;
+        }
+
+        .departmentHead {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          align-items: center;
+          margin-bottom: 10px;
+        }
+
+        .departmentHead h3 {
+          margin: 0;
+          font-size: 15px;
+        }
+
+        .departmentHead span {
+          font-size: 16px;
+          font-weight: 900;
+          color: #ffcf67;
+        }
+
+        .departmentBarTrack {
+          height: 10px;
+          border-radius: 999px;
+          background: rgba(255,255,255,0.1);
+          overflow: hidden;
+          margin-bottom: 10px;
+        }
+
+        .departmentBarFill {
+          height: 100%;
+          border-radius: 999px;
+          background: linear-gradient(90deg, #7db2ff, #4f8cff);
+        }
+
+        .departmentMeta {
+          display: flex;
+          gap: 10px;
+          flex-wrap: wrap;
+          font-size: 12px;
+          color: #cfdbf4;
+        }
+
+        .majorRepairSummary {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          margin-bottom: 12px;
+        }
+
+        .majorBadge {
+          width: 44px;
+          height: 44px;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: rgba(255, 177, 75, 0.18);
+          color: #ffcf67;
+          font-weight: 900;
+          font-size: 18px;
+        }
+
+        .tableWrap {
+          overflow-x: auto;
+          border: 1px solid rgba(255,255,255,0.1);
+          border-radius: 14px;
+          background: rgba(255,255,255,0.04);
+        }
+
+        table {
+          width: 100%;
+          border-collapse: collapse;
+          min-width: 760px;
+        }
+
+        th {
+          background: rgba(255,255,255,0.96);
+          color: #17325f;
+          text-align: left;
+          padding: 12px 14px;
+          font-size: 13px;
+          font-weight: 900;
+        }
+
+        td {
+          padding: 12px 14px;
+          font-size: 14px;
+          border-bottom: 1px solid rgba(255,255,255,0.08);
+        }
+
+        .statusPill {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-width: 92px;
+          border-radius: 999px;
+          padding: 6px 10px;
+          font-size: 12px;
+          font-weight: 900;
+        }
+
+        .statusAvailable {
+          background: rgba(65,184,108,0.18);
+          color: #52dd84;
+        }
+
+        .statusRepair {
+          background: rgba(239,193,77,0.18);
+          color: #ffd75d;
+        }
+
+        .statusDown {
+          background: rgba(201,72,96,0.18);
+          color: #ff7b93;
+        }
+
+        .statusMajor {
+          background: rgba(255,177,75,0.18);
+          color: #ffcf67;
+        }
+
+        .notesStack {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .noteCard {
+          display: grid;
+          grid-template-columns: 32px 1fr;
+          gap: 12px;
+          align-items: start;
+          background: rgba(255,255,255,0.97);
+          color: #17325f;
+          border-radius: 16px;
+          padding: 14px 16px;
+        }
+
+        .noteIcon {
+          font-size: 22px;
+          line-height: 1;
+          margin-top: 2px;
+        }
+
+        .noteCard h3 {
+          margin: 0 0 4px;
+          font-size: 15px;
+          font-weight: 900;
+        }
+
+        .noteCard p {
+          margin: 0;
+          font-size: 14px;
+          color: #4f648b;
+        }
+
+        .mutedCard {
+          border: 1px solid rgba(255,255,255,0.1);
+          border-radius: 16px;
+          padding: 14px 16px;
+          background: rgba(255,255,255,0.05);
+          color: #e7eeff;
+          font-size: 14px;
+          line-height: 1.45;
+        }
+
+        .adminList {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          max-height: 760px;
+          overflow: auto;
+          padding-right: 4px;
+        }
+
+        .adminCard {
+          border: 1px solid rgba(255,255,255,0.1);
+          border-radius: 16px;
+          padding: 14px;
+          background: rgba(255,255,255,0.04);
+        }
+
+        .adminTop {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          align-items: center;
+          margin-bottom: 12px;
+        }
+
+        .adminGrid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 10px;
+        }
+
+        .adminGrid label {
+          display: block;
+          font-size: 12px;
+          color: #cfdbf4;
+          margin-bottom: 6px;
+          font-weight: 700;
+        }
+
+        .selectInput,
+        .textInput {
+          width: 100%;
+          border: none;
+          outline: none;
+          border-radius: 12px;
+          padding: 12px 14px;
+          font-size: 14px;
+          font-weight: 700;
+          color: #17325f;
+          background: white;
+          min-width: 0;
+        }
+
+        .adminActions {
+          margin-top: 12px;
+          display: flex;
+          justify-content: flex-end;
+        }
+
+        .miniAction {
+          border: 1px solid rgba(255,255,255,0.14);
+          background: rgba(10, 23, 52, 0.5);
+          color: white;
+          border-radius: 999px;
+          padding: 10px 14px;
+          font-size: 13px;
+          font-weight: 800;
+          cursor: pointer;
+        }
+
+        .orangeMini {
+          background: linear-gradient(180deg, #ffb24c, #f29a1f);
+          border: none;
+        }
+
+        .controlsRow {
+          display: flex;
+          gap: 10px;
+          flex-wrap: wrap;
+          margin-bottom: 12px;
+        }
+
+        .searchWrap {
+          flex: 1;
+          min-width: 220px;
+          display: flex;
+          align-items: center;
+          background: white;
+          border-radius: 12px;
+          overflow: hidden;
+        }
+
+        .searchWrap span {
+          padding: 0 12px;
+          color: #637ba5;
+          font-weight: 900;
+        }
+
+        .searchWrap input {
+          border: none;
+          outline: none;
+          width: 100%;
+          padding: 12px 14px 12px 0;
+          font-size: 14px;
+          font-weight: 700;
+          color: #17325f;
+          min-width: 0;
+        }
+
+        .bottomLine {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          margin-top: 10px;
+          font-size: 13px;
+          color: #d8e1f6;
+          flex-wrap: wrap;
+        }
+
+        .sheetTabsPanel {
+          margin-top: 16px;
+          background: linear-gradient(180deg, rgba(17, 42, 87, 0.92), rgba(10, 29, 63, 0.94));
+          border: 1px solid rgba(255,255,255,0.1);
+          border-radius: 18px;
+          padding: 16px;
+          box-shadow: 0 18px 40px rgba(0,0,0,0.22);
+        }
+
+        .sheetTabsHeader h3 {
+          margin: 0;
+          font-size: 16px;
+          font-weight: 900;
+        }
+
+        .sheetTabsHeader p {
+          margin: 6px 0 0;
+          color: #c8d4ea;
+          font-size: 14px;
+        }
+
+        .sheetTabs {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px;
+          margin-top: 14px;
+        }
+
+        .sheetTab {
+          border: 1px solid rgba(255,255,255,0.14);
+          background: rgba(10, 23, 52, 0.5);
+          color: white;
+          border-radius: 999px;
+          padding: 10px 14px;
+          font-size: 13px;
+          font-weight: 800;
+          cursor: pointer;
+        }
+
+        .activeSheetTab {
+          background: linear-gradient(180deg, #ffb24c, #f29a1f);
+          border: none;
+        }
+
+        @media (max-width: 1280px) {
+          .topbar {
+            grid-template-columns: 1fr;
+            text-align: center;
+          }
+
+          .topActions {
+            justify-content: center;
+          }
+
+          .dashboardGrid {
+            grid-template-columns: 1fr;
+          }
+
+          .panelHeader {
+            flex-direction: column;
+          }
+        }
+
+        @media (max-width: 860px) {
+          .kpiGrid,
+          .departmentGrid,
+          .adminGrid {
+            grid-template-columns: 1fr;
+          }
+
+          .logoText {
+            font-size: 26px;
+          }
+
+          .titleWrap h1 {
+            font-size: 17px;
+          }
+
+          .chartPanel {
+            padding-left: 44px;
+          }
+
+          .chartGridLines {
+            left: 44px;
+          }
+
+          .bar {
+            width: 36px;
+          }
+
+          .barGroup {
+            width: 50px;
+            min-width: 50px;
+            max-width: 50px;
+          }
+
+          .barLabel {
+            font-size: 11px;
+          }
+
+          .bottomLine,
+          .adminTop {
+            flex-direction: column;
+            align-items: flex-start;
+          }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+function KpiCard({
+  icon,
+  title,
+  value,
+  note
+}: {
+  icon: string;
+  title: string;
+  value: number;
+  note: string;
+}) {
+  return (
+    <div className="kpiCard">
+      <div className="kpiIcon">{icon}</div>
+      <div className="kpiText">
+        <h4>{title}</h4>
+        <div className="kpiValue">{value}</div>
+        <p>{note}</p>
+      </div>
+    </div>
+  );
+}
+
+function getStatusClass(status: string, majorRepair?: boolean) {
+  if (majorRepair) return "statusMajor";
+  const value = status.toLowerCase();
+  if (value.includes("avail")) return "statusAvailable";
+  if (value.includes("repair") || value.includes("maint")) return "statusRepair";
+  return "statusDown";
+}
+
+function parseCSV(text: string): Machine[] {
+  const lines = text.trim().split(/\r?\n/);
+  if (lines.length < 2) return [];
+
+  const headers = lines[0].split(",").map((header) => header.trim().toLowerCase());
+
+  return lines
+    .slice(1)
+    .map((line) => {
+      const cols = line.split(",").map((col) => col.trim());
+      const row: Record<string, string> = {};
+
+      headers.forEach((header, index) => {
+        row[header] = cols[index] || "";
+      });
+
+      return normalizeMachine(row);
+    })
+    .filter((row) => row.fleet && row.machineType);
+}
+
+function isSummaryLikeSheet(rows: Record<string, unknown>[]) {
+  if (!rows.length) return false;
+  const first = normalizeKeys(rows[0]);
+  return (
+    ("machine" in first || "fleet" in first || "fleet number" in first) &&
+    ("availability" in first || "availability %" in first)
+  );
+}
+
+function parseSelectedSheet(sheetName: string, rows: Record<string, unknown>[]): Machine[] {
+  const lower = sheetName.toLowerCase();
+
+  if (lower.includes("summary")) {
+    return mapSummaryRows(rows);
+  }
+
+  const normalizedFirst = rows[0] ? normalizeKeys(rows[0]) : {};
+  if ("machine" in normalizedFirst && "availability" in normalizedFirst) {
+    return mapSummaryRows(rows);
+  }
+
+  return [];
+}
+
+function mapSummaryRows(rows: Record<string, unknown>[]): Machine[] {
+  return rows
+    .map((row) => {
+      const n = normalizeKeys(row);
+
+      const fleet = String(n["machine"] || n["fleet"] || n["fleet number"] || "").trim();
+      if (!fleet) return null;
+
+      const inferredType = inferTypeFromFleet(fleet);
+
+      const availabilityRaw = n["availability"] ?? n["availability %"] ?? "";
+      let availability = Number(availabilityRaw);
+      if (!Number.isFinite(availability)) availability = 0;
+
+      if (availability <= 1) {
+        availability = Math.round(availability * 10000) / 100;
+      }
+
+      const downtime = Number(n["downtime"] || 0);
+      const status =
+        availability >= 85 ? "Available" :
+        availability > 0 ? "Repair" :
+        downtime >= 359 ? "Down" :
+        "Repair";
+
+      return {
+        fleet,
+        type: inferredType,
+        machineType: inferredType === "LV" ? "Light Vehicle" : fleet,
+        status,
+        location: "Hwange",
+        department: inferDepartmentFromType(inferredType),
+        availability,
+        updated: new Date().toLocaleDateString(),
+        majorRepair: false,
+        repairReason: "",
+        sparesEta: ""
+      } as Machine;
+    })
+    .filter((row): row is Machine => Boolean(row));
+}
+
+function normalizeKeys(row: Record<string, unknown>): Record<string, string> {
+  const normalized: Record<string, string> = {};
+  Object.entries(row).forEach(([key, value]) => {
+    normalized[String(key).trim().toLowerCase()] = String(value ?? "").trim();
+  });
+  return normalized;
+}
+
+function normalizeMachine(row: Record<string, string>): Machine {
+  const majorRepair =
+    String(row.majorrepair || row["major repair"] || "").toLowerCase() === "true" ||
+    String(row.status || "").toLowerCase().includes("major");
+
+  const fleet = row.fleet || row["fleet number"] || row.unit || "UNIT";
+  const type = row.type || inferTypeFromFleet(fleet);
+
+  return {
+    fleet,
+    type,
+    machineType: row["machine type"] || row.model || (type === "LV" ? "Light Vehicle" : fleet),
+    status: majorRepair ? "Major Repair" : row.status || "Available",
+    location: row.location || "Hwange",
+    department: row.department || inferDepartmentFromType(type),
+    availability: Number(row.availability || row["availability %"] || row.percent || 0),
+    updated: row.updated || new Date().toLocaleDateString(),
+    majorRepair,
+    repairReason: row.repairreason || row["repair reason"] || "",
+    sparesEta: row.spareseta || row["spares eta"] || ""
+  };
+}
+
+function inferTypeFromFleet(fleet: string) {
+  const cleaned = fleet.toUpperCase().trim();
+
+  const knownHeavyPrefixes = [
+    "FEL",
+    "TEX",
+    "TRT",
+    "HT",
+    "TRL",
+    "TDC",
+    "GEN",
+    "WB",
+    "LV",
+    "WT",
+    "EX",
+    "DT",
+    "TLB",
+    "CARGO"
+  ];
+
+  for (const prefix of knownHeavyPrefixes) {
+    if (cleaned.startsWith(prefix)) {
+      return prefix;
+    }
+  }
+
+  const regPattern = /^[A-Z]{3}\s?\d{3,4}$/;
+  if (regPattern.test(cleaned)) {
+    return "LV";
+  }
+
+  const lettersOnly = cleaned.match(/^[A-Z]+/);
+  if (!lettersOnly) return "GEN";
+
+  const prefix = lettersOnly[0];
+
+  if (prefix.length === 3) {
+    return "LV";
+  }
+
+  return prefix;
+}
+
+function inferDepartmentFromType(type: string) {
+  const t = type.toUpperCase();
+
+  if (t === "LV") return "Plant";
+  if (["FEL", "HT", "TEX", "WB", "EX", "DT"].includes(t)) return "Mining";
+  if (["TRT", "TRL", "TDC", "TLB", "CARGO"].includes(t)) return "Logistics";
+
+  return "Plant";
+}
