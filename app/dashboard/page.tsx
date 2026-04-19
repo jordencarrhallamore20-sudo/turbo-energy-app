@@ -25,32 +25,30 @@ function getStatusColor(status: string) {
 
 export default async function Page() {
   const { data } = await supabase.from("machines").select("*")
-
   const machines: Machine[] = data || []
+
+  const total = machines.length
+  const available = machines.filter(m => getStatusColor(m.status) === "green").length
+  const down = machines.filter(m => getStatusColor(m.status) === "red").length
 
   return (
     <div className="page">
 
-      {/* TOP BAR */}
-      <div className="topbar">
-        <div className="logo">YOUR LOGO</div>
-        <div className="actions">
-          <button className="btn">Upload Excel</button>
+      <div className="header">
+        <div className="header-left">
+          <img src="/logo.png" className="logo" />
+          <h1>Machine Availability</h1>
         </div>
+
+        <button className="upload-btn">Upload Excel</button>
       </div>
 
-      {/* STATS */}
       <div className="stats">
-        <div className="card">Total: {machines.length}</div>
-        <div className="card">
-          Available: {machines.filter(m => getStatusColor(m.status) === "green").length}
-        </div>
-        <div className="card">
-          Down: {machines.filter(m => getStatusColor(m.status) === "red").length}
-        </div>
+        <div className="card">Total: {total}</div>
+        <div className="card">Available: {available}</div>
+        <div className="card">Down: {down}</div>
       </div>
 
-      {/* MACHINE LIST */}
       <div className="list">
         {machines.map((m) => (
           <div key={m.id} className="machine">
@@ -63,27 +61,28 @@ export default async function Page() {
         ))}
       </div>
 
-      {/* TABLE */}
-      <table className="table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Model</th>
-            <th>Status</th>
-            <th>Department</th>
-          </tr>
-        </thead>
-        <tbody>
-          {machines.map((m) => (
-            <tr key={m.id}>
-              <td>{m.name}</td>
-              <td>{m.model}</td>
-              <td>{m.status}</td>
-              <td>{m.department}</td>
+      <div className="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Model</th>
+              <th>Status</th>
+              <th>Department</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {machines.map((m) => (
+              <tr key={m.id}>
+                <td>{m.name}</td>
+                <td>{m.model}</td>
+                <td>{m.status}</td>
+                <td>{m.department}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
     </div>
   )
