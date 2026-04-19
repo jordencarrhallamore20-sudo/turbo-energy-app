@@ -1,5 +1,6 @@
 "use client";
 
+import * as XLSX from "xlsx";
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
 
 type Machine = {
@@ -57,18 +58,11 @@ export default function Page() {
     localStorage.setItem("turboMachineData", JSON.stringify(data));
   };
 
-  const mainMachines = useMemo(
-    () => machines.filter((m) => !m.majorRepair),
-    [machines]
-  );
+  const mainMachines = useMemo(() => machines.filter((m) => !m.majorRepair), [machines]);
 
   const totalMachines = machines.length;
-  const availableMachines = mainMachines.filter((m) =>
-    m.status.toLowerCase().includes("avail")
-  ).length;
-  const repairsMachines = mainMachines.filter(
-    (m) => !m.status.toLowerCase().includes("avail")
-  ).length;
+  const availableMachines = mainMachines.filter((m) => m.status.toLowerCase().includes("avail")).length;
+  const repairsMachines = mainMachines.filter((m) => !m.status.toLowerCase().includes("avail")).length;
   const majorRepairsMachines = machines.filter((m) => m.majorRepair).length;
   const locationCount = new Set(machines.map((m) => m.location)).size;
 
@@ -89,16 +83,12 @@ export default function Page() {
         machine.location.toLowerCase().includes(term) ||
         machine.department.toLowerCase().includes(term) ||
         machine.repairReason.toLowerCase().includes(term);
-
       return matchesType && matchesSearch;
     });
   }, [machines, search, selectedType]);
 
   const topSummary = mainMachines.slice(0, 5);
-  const majorRepairsList = useMemo(
-    () => machines.filter((m) => m.majorRepair),
-    [machines]
-  );
+  const majorRepairsList = useMemo(() => machines.filter((m) => m.majorRepair), [machines]);
 
   const groupedMachineTypeData = useMemo(() => {
     const groups: Record<string, number[]> = {};
@@ -110,9 +100,7 @@ export default function Page() {
     return Object.entries(groups)
       .map(([type, values]) => ({
         type,
-        availability: Math.round(
-          values.reduce((sum, value) => sum + value, 0) / values.length
-        )
+        availability: Math.round(values.reduce((sum, value) => sum + value, 0) / values.length)
       }))
       .sort((a, b) => a.type.localeCompare(b.type));
   }, [mainMachines]);
@@ -126,12 +114,8 @@ export default function Page() {
 
     return Object.entries(groups).map(([department, items]) => {
       const active = items.filter((m) => !m.majorRepair);
-      const available = active.filter((m) =>
-        m.status.toLowerCase().includes("avail")
-      ).length;
-
-      const percent =
-        active.length === 0 ? 0 : Math.round((available / active.length) * 100);
+      const available = active.filter((m) => m.status.toLowerCase().includes("avail")).length;
+      const percent = active.length === 0 ? 0 : Math.round((available / active.length) * 100);
 
       return {
         department,
@@ -150,11 +134,7 @@ export default function Page() {
   ) => {
     const updated = machines.map((machine) =>
       machine.fleet === fleet
-        ? {
-            ...machine,
-            [field]: value,
-            updated: new Date().toLocaleDateString()
-          }
+        ? { ...machine, [field]: value, updated: new Date().toLocaleDateString() }
         : machine
     );
     saveMachines(updated);
@@ -232,23 +212,46 @@ export default function Page() {
     }
   };
 
-  const handleCSVUpload = (event: ChangeEvent<HTMLInputElement>) => {
+  const handleSpreadsheetUpload = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
     setFileName(file.name);
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const text = String(e.target?.result || "");
-      const parsed = parseCSV(text);
+    try {
+      const lowerName = file.name.toLowerCase();
+      let parsed: Machine[] = [];
+
+      if (lowerName.endsWith(".csv")) {
+        const text = await file.text();
+        parsed = parseCSV(text);
+      } else if (
+        lowerName.endsWith(".xlsx") ||
+        lowerName.endsWith(".xls") ||
+        lowerName.endsWith(".xlsm")
+      ) {
+        const buffer = await file.arrayBuffer();
+        const workbook = XLSX.read(buffer, { type: "array" });
+        const firstSheetName = workbook.SheetNames[0];
+        const firstSheet = workbook.Sheets[firstSheetName];
+        const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(firstSheet, {
+          defval: ""
+        });
+        parsed = mapSpreadsheetRows(rows);
+      } else {
+        alert("Please upload .xlsx, .xls, .xlsm, or .csv");
+        return;
+      }
+
       if (parsed.length > 0) {
         saveMachines(parsed);
       } else {
-        alert("CSV uploaded but no valid rows were found.");
+        alert("Spreadsheet uploaded but no valid rows were found.");
       }
-    };
-    reader.readAsText(file);
+    } catch (error) {
+      console.error(error);
+      alert("Could not read spreadsheet file.");
+    }
   };
 
   const scrollToBottomRegister = () => {
@@ -312,7 +315,7 @@ export default function Page() {
               <div className="panelHeader">
                 <div>
                   <h2>Admin Upload and Save</h2>
-                  <p>Upload spreadsheet CSV from Excel</p>
+                  <p>Upload spreadsheet XLSX, XLS, XLSM, or CSV</p>
                 </div>
 
                 <div className="panelButtons">
@@ -329,8 +332,8 @@ export default function Page() {
                 <input
                   id="csvUploadTop"
                   type="file"
-                  accept=".csv"
-                  onChange={handleCSVUpload}
+                  accept=".xlsx,.xls,.xlsm,.csv"
+                  onChange={handleSpreadsheetUpload}
                   className="hiddenInput"
                 />
                 <label htmlFor="csvUploadTop" className="filePicker">
@@ -340,7 +343,7 @@ export default function Page() {
               </div>
 
               <div className="infoBox">
-                Save your Excel sheet as CSV, then upload it here. Department, major repair, reason, and spares ETA can all be edited inside the app.
+                You can now upload Excel directly. The app reads the first worksheet and maps common columns like fleet, type, machine type, status, location, department, availability, repair reason, and spares ETA.
               </div>
             </section>
 
@@ -515,15 +518,15 @@ export default function Page() {
                 </div>
 
                 <div className="noteCard">
-                  <div className="noteIcon">🏢</div>
+                  <div className="noteIcon">📄</div>
                   <div>
-                    <h3>Department tracking</h3>
-                    <p>Machines can be allocated to Plant, Mining, Logistics, Admin, or Workshop.</p>
+                    <h3>Excel upload ready</h3>
+                    <p>The upload box now accepts real Excel files plus CSV.</p>
                   </div>
                 </div>
 
                 <div className="mutedCard">
-                  Type graph now shows machine groups like FEL, TEX, TRT, HT, TRL, TDC and any other types in your data.
+                  Type graph now shows machine groups like FEL, TEX, TRT, HT, TRL, TDC and any other types in your uploaded data.
                 </div>
               </div>
             </section>
@@ -551,15 +554,11 @@ export default function Page() {
                         <label>Department</label>
                         <select
                           value={machine.department}
-                          onChange={(e) =>
-                            updateMachineField(machine.fleet, "department", e.target.value)
-                          }
+                          onChange={(e) => updateMachineField(machine.fleet, "department", e.target.value)}
                           className="selectInput"
                         >
                           {departments.map((dep) => (
-                            <option key={dep} value={dep}>
-                              {dep}
-                            </option>
+                            <option key={dep} value={dep}>{dep}</option>
                           ))}
                         </select>
                       </div>
@@ -574,9 +573,7 @@ export default function Page() {
                               setMajorRepair(machine.fleet, true);
                             } else {
                               updateMachineField(machine.fleet, "status", value);
-                              if (machine.majorRepair) {
-                                setMajorRepair(machine.fleet, false);
-                              }
+                              if (machine.majorRepair) setMajorRepair(machine.fleet, false);
                             }
                           }}
                           className="selectInput"
@@ -596,11 +593,7 @@ export default function Page() {
                           type="number"
                           value={machine.availability}
                           onChange={(e) =>
-                            updateMachineField(
-                              machine.fleet,
-                              "availability",
-                              Number(e.target.value || 0)
-                            )
+                            updateMachineField(machine.fleet, "availability", Number(e.target.value || 0))
                           }
                         />
                       </div>
@@ -612,9 +605,7 @@ export default function Page() {
                           type="text"
                           value={machine.repairReason}
                           placeholder="Reason for major repair"
-                          onChange={(e) =>
-                            updateMachineField(machine.fleet, "repairReason", e.target.value)
-                          }
+                          onChange={(e) => updateMachineField(machine.fleet, "repairReason", e.target.value)}
                         />
                       </div>
 
@@ -625,9 +616,7 @@ export default function Page() {
                           type="text"
                           value={machine.sparesEta}
                           placeholder="e.g. 30 Apr 2026"
-                          onChange={(e) =>
-                            updateMachineField(machine.fleet, "sparesEta", e.target.value)
-                          }
+                          onChange={(e) => updateMachineField(machine.fleet, "sparesEta", e.target.value)}
                         />
                       </div>
 
@@ -637,9 +626,7 @@ export default function Page() {
                           className="textInput"
                           type="text"
                           value={machine.location}
-                          onChange={(e) =>
-                            updateMachineField(machine.fleet, "location", e.target.value)
-                          }
+                          onChange={(e) => updateMachineField(machine.fleet, "location", e.target.value)}
                         />
                       </div>
                     </div>
@@ -752,13 +739,11 @@ export default function Page() {
             linear-gradient(180deg, #091c43 0%, #081733 100%);
           font-family: Arial, Helvetica, sans-serif;
         }
-
         .shell {
           width: min(1380px, calc(100% - 24px));
           margin: 0 auto;
           padding: 0 0 24px;
         }
-
         .topbar {
           display: grid;
           grid-template-columns: 370px 1fr auto;
@@ -770,7 +755,6 @@ export default function Page() {
           border-radius: 0 0 18px 18px;
           box-shadow: 0 18px 40px rgba(0,0,0,0.24);
         }
-
         .logoBox {
           background: rgba(255,255,255,0.92);
           min-height: 62px;
@@ -779,7 +763,6 @@ export default function Page() {
           justify-content: center;
           padding: 8px 16px;
         }
-
         .logoText {
           color: #8a9abb;
           font-size: 34px;
@@ -787,30 +770,25 @@ export default function Page() {
           font-weight: 900;
           letter-spacing: 1px;
         }
-
         .titleWrap {
           text-align: center;
         }
-
         .titleWrap h1 {
           margin: 0;
           font-size: 20px;
           font-weight: 800;
         }
-
         .titleWrap p {
           margin: 6px 0 0;
           font-size: 14px;
           color: #c8d4ea;
         }
-
         .topActions {
           display: flex;
           gap: 12px;
           flex-wrap: wrap;
           justify-content: flex-end;
         }
-
         .pillButton {
           border: 1px solid rgba(255,255,255,0.14);
           background: rgba(10, 23, 52, 0.5);
@@ -821,36 +799,30 @@ export default function Page() {
           font-weight: 800;
           cursor: pointer;
         }
-
         .primaryPill {
           background: linear-gradient(180deg, #ffb24c, #f29a1f);
           box-shadow: 0 10px 22px rgba(242,154,31,0.26);
         }
-
         .solidButton {
           background: rgba(14, 35, 74, 0.95);
         }
-
         .dashboardGrid {
           display: grid;
           grid-template-columns: 1.5fr 1fr;
           gap: 16px;
           margin-top: 14px;
         }
-
         .leftColumn,
         .rightColumn {
           display: flex;
           flex-direction: column;
           gap: 16px;
         }
-
         .kpiGrid {
           display: grid;
           grid-template-columns: repeat(4, 1fr);
           gap: 12px;
         }
-
         .kpiCard {
           background: rgba(255,255,255,0.97);
           color: #17325f;
@@ -862,7 +834,6 @@ export default function Page() {
           align-items: center;
           box-shadow: 0 18px 40px rgba(0,0,0,0.22);
         }
-
         .kpiIcon {
           width: 52px;
           height: 52px;
@@ -873,26 +844,22 @@ export default function Page() {
           background: rgba(79, 140, 255, 0.15);
           font-size: 24px;
         }
-
         .kpiText h4 {
           margin: 0 0 6px;
           font-size: 13px;
           font-weight: 800;
         }
-
         .kpiValue {
           margin: 0 0 8px;
           font-size: 22px;
           line-height: 1;
           font-weight: 900;
         }
-
         .kpiText p {
           margin: 0;
           font-size: 13px;
           color: #5f7196;
         }
-
         .panel {
           background: linear-gradient(180deg, rgba(17, 42, 87, 0.92), rgba(10, 29, 63, 0.94));
           border: 1px solid rgba(255,255,255,0.1);
@@ -900,7 +867,6 @@ export default function Page() {
           padding: 18px;
           box-shadow: 0 18px 40px rgba(0,0,0,0.22);
         }
-
         .panelHeader {
           display: flex;
           justify-content: space-between;
@@ -908,7 +874,6 @@ export default function Page() {
           align-items: flex-start;
           margin-bottom: 14px;
         }
-
         .panelHeader h2,
         .sectionHeading h2,
         .sectionTitleRow h2 {
@@ -916,20 +881,17 @@ export default function Page() {
           font-size: 18px;
           font-weight: 900;
         }
-
         .panelHeader p,
         .sectionHeading p {
           margin: 6px 0 0;
           color: #c8d4ea;
           font-size: 14px;
         }
-
         .panelButtons {
           display: flex;
           gap: 10px;
           flex-wrap: wrap;
         }
-
         .actionButton {
           border: none;
           border-radius: 14px;
@@ -938,17 +900,14 @@ export default function Page() {
           font-weight: 800;
           cursor: pointer;
         }
-
         .orangeButton {
           background: linear-gradient(180deg, #ffb24c, #f29a1f);
           color: white;
         }
-
         .whiteButton {
           background: rgba(255,255,255,0.97);
           color: #17325f;
         }
-
         .uploadArea {
           border: 1px solid rgba(255,255,255,0.12);
           border-radius: 14px;
@@ -959,11 +918,9 @@ export default function Page() {
           gap: 12px;
           flex-wrap: wrap;
         }
-
         .hiddenInput {
           display: none;
         }
-
         .filePicker {
           display: inline-flex;
           align-items: center;
@@ -976,13 +933,11 @@ export default function Page() {
           font-weight: 800;
           cursor: pointer;
         }
-
         .fileName {
           color: #d9e4f7;
           font-size: 14px;
           font-weight: 700;
         }
-
         .infoBox {
           margin-top: 12px;
           border: 1px solid rgba(255,255,255,0.1);
@@ -993,7 +948,6 @@ export default function Page() {
           font-size: 14px;
           line-height: 1.45;
         }
-
         .sectionTitleRow {
           display: flex;
           justify-content: space-between;
@@ -1001,12 +955,10 @@ export default function Page() {
           gap: 12px;
           margin-bottom: 12px;
         }
-
         .sectionTitleRow span {
           font-size: 14px;
           font-weight: 800;
         }
-
         .chartPanel {
           position: relative;
           min-height: 310px;
@@ -1017,7 +969,6 @@ export default function Page() {
           overflow-x: auto;
           overflow-y: hidden;
         }
-
         .chartGridLines {
           position: absolute;
           left: 56px;
@@ -1029,12 +980,10 @@ export default function Page() {
           justify-content: space-between;
           pointer-events: none;
         }
-
         .chartGridLines div {
           position: relative;
           border-top: 1px dashed rgba(255,255,255,0.12);
         }
-
         .chartGridLines span {
           position: absolute;
           left: -54px;
@@ -1043,7 +992,6 @@ export default function Page() {
           font-weight: 700;
           color: #c8d4ea;
         }
-
         .barsArea {
           position: relative;
           min-width: 620px;
@@ -1054,7 +1002,6 @@ export default function Page() {
           gap: 18px;
           z-index: 1;
         }
-
         .barGroup {
           width: 100%;
           max-width: 82px;
@@ -1064,52 +1011,43 @@ export default function Page() {
           justify-content: flex-end;
           gap: 8px;
         }
-
         .barValue {
           font-size: 15px;
           font-weight: 900;
         }
-
         .bar {
           width: 62px;
           border-radius: 14px 14px 4px 4px;
           background: linear-gradient(180deg, rgba(225,235,255,0.98), rgba(169,189,235,0.92));
           box-shadow: inset 0 1px 0 rgba(255,255,255,0.45), 0 10px 18px rgba(0,0,0,0.16);
         }
-
         .highlightBar {
           background: linear-gradient(180deg, #bed6ff, #6f9fff);
         }
-
         .barLabel {
           font-size: 15px;
           font-weight: 900;
           color: #eaf0ff;
         }
-
         .footNote {
           margin: 12px 0 0;
           font-size: 14px;
           color: #c8d4ea;
         }
-
         .sectionHeading {
           margin-bottom: 12px;
         }
-
         .departmentGrid {
           display: grid;
           grid-template-columns: repeat(2, 1fr);
           gap: 12px;
         }
-
         .departmentCard {
           border: 1px solid rgba(255,255,255,0.1);
           border-radius: 16px;
           padding: 14px;
           background: rgba(255,255,255,0.04);
         }
-
         .departmentHead {
           display: flex;
           justify-content: space-between;
@@ -1117,18 +1055,15 @@ export default function Page() {
           align-items: center;
           margin-bottom: 10px;
         }
-
         .departmentHead h3 {
           margin: 0;
           font-size: 15px;
         }
-
         .departmentHead span {
           font-size: 16px;
           font-weight: 900;
           color: #ffcf67;
         }
-
         .departmentBarTrack {
           height: 10px;
           border-radius: 999px;
@@ -1136,13 +1071,11 @@ export default function Page() {
           overflow: hidden;
           margin-bottom: 10px;
         }
-
         .departmentBarFill {
           height: 100%;
           border-radius: 999px;
           background: linear-gradient(90deg, #7db2ff, #4f8cff);
         }
-
         .departmentMeta {
           display: flex;
           gap: 10px;
@@ -1150,14 +1083,12 @@ export default function Page() {
           font-size: 12px;
           color: #cfdbf4;
         }
-
         .majorRepairSummary {
           display: flex;
           align-items: center;
           gap: 12px;
           margin-bottom: 12px;
         }
-
         .majorBadge {
           width: 44px;
           height: 44px;
@@ -1170,20 +1101,17 @@ export default function Page() {
           font-weight: 900;
           font-size: 18px;
         }
-
         .tableWrap {
           overflow-x: auto;
           border: 1px solid rgba(255,255,255,0.1);
           border-radius: 14px;
           background: rgba(255,255,255,0.04);
         }
-
         table {
           width: 100%;
           border-collapse: collapse;
           min-width: 760px;
         }
-
         th {
           background: rgba(255,255,255,0.96);
           color: #17325f;
@@ -1192,13 +1120,11 @@ export default function Page() {
           font-size: 13px;
           font-weight: 900;
         }
-
         td {
           padding: 12px 14px;
           font-size: 14px;
           border-bottom: 1px solid rgba(255,255,255,0.08);
         }
-
         .statusPill {
           display: inline-flex;
           align-items: center;
@@ -1209,33 +1135,27 @@ export default function Page() {
           font-size: 12px;
           font-weight: 900;
         }
-
         .statusAvailable {
           background: rgba(65,184,108,0.18);
           color: #52dd84;
         }
-
         .statusRepair {
           background: rgba(239,193,77,0.18);
           color: #ffd75d;
         }
-
         .statusDown {
           background: rgba(201,72,96,0.18);
           color: #ff7b93;
         }
-
         .statusMajor {
           background: rgba(255,177,75,0.18);
           color: #ffcf67;
         }
-
         .notesStack {
           display: flex;
           flex-direction: column;
           gap: 12px;
         }
-
         .noteCard {
           display: grid;
           grid-template-columns: 32px 1fr;
@@ -1246,25 +1166,21 @@ export default function Page() {
           border-radius: 16px;
           padding: 14px 16px;
         }
-
         .noteIcon {
           font-size: 22px;
           line-height: 1;
           margin-top: 2px;
         }
-
         .noteCard h3 {
           margin: 0 0 4px;
           font-size: 15px;
           font-weight: 900;
         }
-
         .noteCard p {
           margin: 0;
           font-size: 14px;
           color: #4f648b;
         }
-
         .mutedCard {
           border: 1px solid rgba(255,255,255,0.1);
           border-radius: 16px;
@@ -1274,7 +1190,6 @@ export default function Page() {
           font-size: 14px;
           line-height: 1.45;
         }
-
         .adminList {
           display: flex;
           flex-direction: column;
@@ -1283,14 +1198,12 @@ export default function Page() {
           overflow: auto;
           padding-right: 4px;
         }
-
         .adminCard {
           border: 1px solid rgba(255,255,255,0.1);
           border-radius: 16px;
           padding: 14px;
           background: rgba(255,255,255,0.04);
         }
-
         .adminTop {
           display: flex;
           justify-content: space-between;
@@ -1298,13 +1211,11 @@ export default function Page() {
           align-items: center;
           margin-bottom: 12px;
         }
-
         .adminGrid {
           display: grid;
           grid-template-columns: repeat(2, 1fr);
           gap: 10px;
         }
-
         .adminGrid label {
           display: block;
           font-size: 12px;
@@ -1312,7 +1223,6 @@ export default function Page() {
           margin-bottom: 6px;
           font-weight: 700;
         }
-
         .selectInput,
         .textInput {
           width: 100%;
@@ -1325,13 +1235,11 @@ export default function Page() {
           color: #17325f;
           background: white;
         }
-
         .adminActions {
           margin-top: 12px;
           display: flex;
           justify-content: flex-end;
         }
-
         .miniAction {
           border: 1px solid rgba(255,255,255,0.14);
           background: rgba(10, 23, 52, 0.5);
@@ -1342,19 +1250,16 @@ export default function Page() {
           font-weight: 800;
           cursor: pointer;
         }
-
         .orangeMini {
           background: linear-gradient(180deg, #ffb24c, #f29a1f);
           border: none;
         }
-
         .controlsRow {
           display: flex;
           gap: 10px;
           flex-wrap: wrap;
           margin-bottom: 12px;
         }
-
         .searchWrap {
           flex: 1;
           min-width: 220px;
@@ -1364,13 +1269,11 @@ export default function Page() {
           border-radius: 12px;
           overflow: hidden;
         }
-
         .searchWrap span {
           padding: 0 12px;
           color: #637ba5;
           font-weight: 900;
         }
-
         .searchWrap input {
           border: none;
           outline: none;
@@ -1380,7 +1283,6 @@ export default function Page() {
           font-weight: 700;
           color: #17325f;
         }
-
         .bottomLine {
           display: flex;
           justify-content: space-between;
@@ -1389,57 +1291,45 @@ export default function Page() {
           font-size: 13px;
           color: #d8e1f6;
         }
-
         @media (max-width: 1280px) {
           .topbar {
             grid-template-columns: 1fr;
             text-align: center;
           }
-
           .topActions {
             justify-content: center;
           }
-
           .dashboardGrid {
             grid-template-columns: 1fr;
           }
-
           .panelHeader {
             flex-direction: column;
           }
         }
-
         @media (max-width: 860px) {
           .kpiGrid,
           .departmentGrid,
           .adminGrid {
             grid-template-columns: 1fr;
           }
-
           .logoText {
             font-size: 26px;
           }
-
           .titleWrap h1 {
             font-size: 17px;
           }
-
           .chartPanel {
             padding-left: 44px;
           }
-
           .chartGridLines {
             left: 44px;
           }
-
           .bar {
             width: 42px;
           }
-
           .barLabel {
             font-size: 12px;
           }
-
           .bottomLine,
           .adminTop {
             flex-direction: column;
@@ -1471,7 +1361,7 @@ function KpiCard({
         <p>{note}</p>
       </div>
     </div>
-    );
+  );
 }
 
 function getStatusClass(status: string, majorRepair?: boolean) {
@@ -1498,23 +1388,39 @@ function parseCSV(text: string): Machine[] {
         row[header] = cols[index] || "";
       });
 
-      const majorRepair =
-        String(row.majorrepair || row["major repair"] || "").toLowerCase() === "true" ||
-        String(row.status || "").toLowerCase().includes("major");
-
-      return {
-        fleet: row.fleet || row["fleet number"] || "UNIT",
-        type: row.type || "GEN",
-        machineType: row["machine type"] || row.model || row.type || "Machine",
-        status: majorRepair ? "Major Repair" : row.status || "Available",
-        location: row.location || "Unknown",
-        department: row.department || "Plant",
-        availability: Number(row.availability || row["availability %"] || 0),
-        updated: row.updated || new Date().toLocaleDateString(),
-        majorRepair,
-        repairReason: row.repairreason || row["repair reason"] || "",
-        sparesEta: row.spareseta || row["spares eta"] || ""
-      };
+      return normalizeMachine(row);
     })
     .filter((row) => row.fleet && row.machineType);
+}
+
+function mapSpreadsheetRows(rows: Record<string, unknown>[]): Machine[] {
+  return rows
+    .map((row) => {
+      const normalized: Record<string, string> = {};
+      Object.entries(row).forEach(([key, value]) => {
+        normalized[String(key).trim().toLowerCase()] = String(value ?? "").trim();
+      });
+      return normalizeMachine(normalized);
+    })
+    .filter((row) => row.fleet && row.machineType);
+}
+
+function normalizeMachine(row: Record<string, string>): Machine {
+  const majorRepair =
+    String(row.majorrepair || row["major repair"] || "").toLowerCase() === "true" ||
+    String(row.status || "").toLowerCase().includes("major");
+
+  return {
+    fleet: row.fleet || row["fleet number"] || row.unit || "UNIT",
+    type: row.type || "GEN",
+    machineType: row["machine type"] || row.model || row.type || "Machine",
+    status: majorRepair ? "Major Repair" : row.status || "Available",
+    location: row.location || "Unknown",
+    department: row.department || "Plant",
+    availability: Number(row.availability || row["availability %"] || row.percent || 0),
+    updated: row.updated || new Date().toLocaleDateString(),
+    majorRepair,
+    repairReason: row.repairreason || row["repair reason"] || "",
+    sparesEta: row.spareseta || row["spares eta"] || ""
+  };
 }
