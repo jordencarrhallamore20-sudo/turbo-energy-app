@@ -12,12 +12,10 @@ body {
   font-family: Arial, sans-serif;
 }
 
-/* PAGE */
 .page {
   padding: 20px;
 }
 
-/* HEADER */
 .header {
   display: flex;
   justify-content: space-between;
@@ -32,14 +30,12 @@ body {
   gap: 12px;
 }
 
-/* LOGO FIXED */
 .logo {
   height: 50px;
   width: auto;
   object-fit: contain;
 }
 
-/* BUTTON */
 .upload-btn {
   background: var(--primary);
   border: none;
@@ -49,7 +45,6 @@ body {
   font-weight: bold;
 }
 
-/* STATS */
 .stats {
   display: flex;
   gap: 15px;
@@ -61,10 +56,21 @@ body {
   background: var(--panel);
   padding: 18px;
   text-align: center;
-  font-size: 16px;
 }
 
-/* MACHINE LIST */
+.types {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.type-card {
+  background: var(--panel);
+  padding: 15px;
+  flex: 1;
+  text-align: center;
+}
+
 .machine {
   display: flex;
   justify-content: space-between;
@@ -73,12 +79,10 @@ body {
   margin-bottom: 6px;
 }
 
-/* STATUS */
 .status.green { color: #2bb673; }
 .status.red { color: #d94141; }
 .status.orange { color: #f0b429; }
 
-/* TABLE */
 .table-container {
   margin-top: 20px;
 }
