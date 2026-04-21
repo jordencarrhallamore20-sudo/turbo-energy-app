@@ -6,14 +6,25 @@ import { useState } from "react";
 export default function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
 
   async function handleLogin() {
-    await signIn("credentials", {
+    setLoading(true);
+
+    const result = await signIn("credentials", {
       username,
       password,
-      redirect: true,
-      callbackUrl: "/",
+      redirect: false,
     });
+
+    setLoading(false);
+
+    if (result?.ok) {
+      window.location.href = "/";
+      return;
+    }
+
+    alert("Login failed");
   }
 
   return (
@@ -35,7 +46,9 @@ export default function LoginPage() {
       />
       <br />
 
-      <button onClick={handleLogin}>Login</button>
+      <button onClick={handleLogin} disabled={loading}>
+        {loading ? "Logging in..." : "Login"}
+      </button>
     </div>
   );
 }
