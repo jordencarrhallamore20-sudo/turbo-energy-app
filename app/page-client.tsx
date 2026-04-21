@@ -22,6 +22,10 @@ type WorkbookSheetData = {
   rows: Record<string, unknown>[];
 };
 
+type DashboardClientProps = {
+  role: string;
+};
+
 const sampleData: Machine[] = [
   { fleet: "FEL09", type: "FEL", machineType: "SL60", status: "Available", location: "Hwange", department: "Plant", availability: 88, updated: "19 Apr 2026", majorRepair: false, repairReason: "", sparesEta: "" },
   { fleet: "FEL10", type: "FEL", machineType: "966H", status: "Available", location: "Hwange", department: "Plant", availability: 91, updated: "19 Apr 2026", majorRepair: false, repairReason: "", sparesEta: "" },
@@ -37,7 +41,7 @@ const sampleData: Machine[] = [
 
 const departments = ["Plant", "Mining", "Logistics", "Admin", "Workshop"];
 
-export default function Page() {
+export default function DashboardClient({ role }: DashboardClientProps) {
   const [machines, setMachines] = useState<Machine[]>([]);
   const [selectedType, setSelectedType] = useState("ALL");
   const [search, setSearch] = useState("");
@@ -356,9 +360,11 @@ export default function Page() {
           </div>
 
           <div className="topActions">
-            <label htmlFor="csvUploadTop" className="pillButton primaryPill">
-              Upload File
-            </label>
+            {role === "admin" && (
+              <label htmlFor="csvUploadTop" className="pillButton primaryPill">
+                Upload File
+              </label>
+            )}
             <button className="pillButton" onClick={showBelow85Only}>
               Units Below 85%
             </button>
@@ -380,41 +386,43 @@ export default function Page() {
               <KpiCard icon="📍" title="LOCATIONS" value={locationCount} note="Distinct operating locations" />
             </div>
 
-            <section className="panel">
-              <div className="panelHeader">
-                <div>
-                  <h2>Admin Upload and Save</h2>
-                  <p>Upload spreadsheet XLSX, XLS, XLSM, or CSV</p>
+            {role === "admin" && (
+              <section className="panel">
+                <div className="panelHeader">
+                  <div>
+                    <h2>Admin Upload and Save</h2>
+                    <p>Upload spreadsheet XLSX, XLS, XLSM, or CSV</p>
+                  </div>
+
+                  <div className="panelButtons">
+                    <button className="actionButton orangeButton" onClick={handleExport}>
+                      Export CSV
+                    </button>
+                    <button className="actionButton whiteButton" onClick={handlePrint}>
+                      Print report
+                    </button>
+                  </div>
                 </div>
 
-                <div className="panelButtons">
-                  <button className="actionButton orangeButton" onClick={handleExport}>
-                    Export CSV
-                  </button>
-                  <button className="actionButton whiteButton" onClick={handlePrint}>
-                    Print report
-                  </button>
+                <div className="uploadArea">
+                  <input
+                    id="csvUploadTop"
+                    type="file"
+                    accept=".xlsx,.xls,.xlsm,.csv"
+                    onChange={handleSpreadsheetUpload}
+                    className="hiddenInput"
+                  />
+                  <label htmlFor="csvUploadTop" className="filePicker">
+                    Choose File
+                  </label>
+                  <span className="fileName">{fileName}</span>
                 </div>
-              </div>
 
-              <div className="uploadArea">
-                <input
-                  id="csvUploadTop"
-                  type="file"
-                  accept=".xlsx,.xls,.xlsm,.csv"
-                  onChange={handleSpreadsheetUpload}
-                  className="hiddenInput"
-                />
-                <label htmlFor="csvUploadTop" className="filePicker">
-                  Choose File
-                </label>
-                <span className="fileName">{fileName}</span>
-              </div>
-
-              <div className="infoBox">
-                Excel upload now uses <strong>Summary</strong> first, then <strong>Summary (Excl Tyre)</strong>. Registration-style light vehicles are grouped into <strong>LDV</strong>. Saved local data is also normalized so old ABH / AEK / AEX type values get corrected automatically.
-              </div>
-            </section>
+                <div className="infoBox">
+                  Excel upload now uses <strong>Summary</strong> first, then <strong>Summary (Excl Tyre)</strong>. Registration-style light vehicles are grouped into <strong>LDV</strong>. Saved local data is also normalized so old ABH / AEK / AEX type values get corrected automatically.
+                </div>
+              </section>
+            )}
 
             <section className="panel">
               <div className="sectionTitleRow">
@@ -499,13 +507,13 @@ export default function Page() {
                       <th>Reason</th>
                       <th>Spares ETA</th>
                       <th>Status</th>
-                      <th>Action</th>
+                      {role === "admin" && <th>Action</th>}
                     </tr>
                   </thead>
                   <tbody>
                     {majorRepairsList.length === 0 ? (
                       <tr>
-                        <td colSpan={7}>No machines on major repair.</td>
+                        <td colSpan={role === "admin" ? 7 : 6}>No machines on major repair.</td>
                       </tr>
                     ) : (
                       majorRepairsList.map((machine) => (
@@ -518,14 +526,16 @@ export default function Page() {
                           <td>
                             <span className="statusPill statusMajor">Major Repair</span>
                           </td>
-                          <td>
-                            <button
-                              className="miniAction"
-                              onClick={() => setMajorRepair(machine.fleet, false)}
-                            >
-                              Return to main list
-                            </button>
-                          </td>
+                          {role === "admin" && (
+                            <td>
+                              <button
+                                className="miniAction"
+                                onClick={() => setMajorRepair(machine.fleet, false)}
+                              >
+                                Return to main list
+                              </button>
+                            </td>
+                          )}
                         </tr>
                       ))
                     )}
@@ -600,127 +610,129 @@ export default function Page() {
               </div>
             </section>
 
-            <section className="panel">
-              <div className="sectionHeading">
-                <h2>Admin Machine Controls</h2>
-                <p>Move machines to major repair, assign departments, and add notes.</p>
-              </div>
+            {role === "admin" && (
+              <section className="panel">
+                <div className="sectionHeading">
+                  <h2>Admin Machine Controls</h2>
+                  <p>Move machines to major repair, assign departments, and add notes.</p>
+                </div>
 
-              <div className="adminList">
-                {machines.map((machine) => (
-                  <div key={machine.fleet} className="adminCard">
-                    <div className="adminTop">
-                      <div>
-                        <strong>{machine.fleet}</strong> - {machine.machineType}
-                      </div>
-                      <span className={`statusPill ${getStatusClass(machine.status, machine.majorRepair)}`}>
-                        {machine.majorRepair ? "Major Repair" : machine.status}
-                      </span>
-                    </div>
-
-                    <div className="adminGrid">
-                      <div>
-                        <label>Department</label>
-                        <select
-                          value={machine.department}
-                          onChange={(e) => updateMachineField(machine.fleet, "department", e.target.value)}
-                          className="selectInput"
-                        >
-                          {departments.map((dep) => (
-                            <option key={dep} value={dep}>{dep}</option>
-                          ))}
-                        </select>
+                <div className="adminList">
+                  {machines.map((machine) => (
+                    <div key={machine.fleet} className="adminCard">
+                      <div className="adminTop">
+                        <div>
+                          <strong>{machine.fleet}</strong> - {machine.machineType}
+                        </div>
+                        <span className={`statusPill ${getStatusClass(machine.status, machine.majorRepair)}`}>
+                          {machine.majorRepair ? "Major Repair" : machine.status}
+                        </span>
                       </div>
 
-                      <div>
-                        <label>Status</label>
-                        <select
-                          value={machine.majorRepair ? "Major Repair" : machine.status}
-                          onChange={(e) => {
-                            const value = e.target.value;
-                            if (value === "Major Repair") {
-                              setMajorRepair(machine.fleet, true);
-                            } else {
-                              updateMachineField(machine.fleet, "status", value);
-                              if (machine.majorRepair) setMajorRepair(machine.fleet, false);
+                      <div className="adminGrid">
+                        <div>
+                          <label>Department</label>
+                          <select
+                            value={machine.department}
+                            onChange={(e) => updateMachineField(machine.fleet, "department", e.target.value)}
+                            className="selectInput"
+                          >
+                            {departments.map((dep) => (
+                              <option key={dep} value={dep}>{dep}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label>Status</label>
+                          <select
+                            value={machine.majorRepair ? "Major Repair" : machine.status}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              if (value === "Major Repair") {
+                                setMajorRepair(machine.fleet, true);
+                              } else {
+                                updateMachineField(machine.fleet, "status", value);
+                                if (machine.majorRepair) setMajorRepair(machine.fleet, false);
+                              }
+                            }}
+                            className="selectInput"
+                          >
+                            <option value="Available">Available</option>
+                            <option value="Repair">Repair</option>
+                            <option value="Maintenance">Maintenance</option>
+                            <option value="Down">Down</option>
+                            <option value="Major Repair">Major Repair</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <label>Availability %</label>
+                          <input
+                            className="textInput"
+                            type="number"
+                            value={machine.availability}
+                            onChange={(e) =>
+                              updateMachineField(machine.fleet, "availability", Number(e.target.value || 0))
                             }
-                          }}
-                          className="selectInput"
-                        >
-                          <option value="Available">Available</option>
-                          <option value="Repair">Repair</option>
-                          <option value="Maintenance">Maintenance</option>
-                          <option value="Down">Down</option>
-                          <option value="Major Repair">Major Repair</option>
-                        </select>
+                          />
+                        </div>
+
+                        <div>
+                          <label>Reason</label>
+                          <input
+                            className="textInput"
+                            type="text"
+                            value={machine.repairReason}
+                            placeholder="Reason for major repair"
+                            onChange={(e) => updateMachineField(machine.fleet, "repairReason", e.target.value)}
+                          />
+                        </div>
+
+                        <div>
+                          <label>Spares ETA</label>
+                          <input
+                            className="textInput"
+                            type="text"
+                            value={machine.sparesEta}
+                            placeholder="e.g. 30 Apr 2026"
+                            onChange={(e) => updateMachineField(machine.fleet, "sparesEta", e.target.value)}
+                          />
+                        </div>
+
+                        <div>
+                          <label>Location</label>
+                          <input
+                            className="textInput"
+                            type="text"
+                            value={machine.location}
+                            onChange={(e) => updateMachineField(machine.fleet, "location", e.target.value)}
+                          />
+                        </div>
                       </div>
 
-                      <div>
-                        <label>Availability %</label>
-                        <input
-                          className="textInput"
-                          type="number"
-                          value={machine.availability}
-                          onChange={(e) =>
-                            updateMachineField(machine.fleet, "availability", Number(e.target.value || 0))
-                          }
-                        />
-                      </div>
-
-                      <div>
-                        <label>Reason</label>
-                        <input
-                          className="textInput"
-                          type="text"
-                          value={machine.repairReason}
-                          placeholder="Reason for major repair"
-                          onChange={(e) => updateMachineField(machine.fleet, "repairReason", e.target.value)}
-                        />
-                      </div>
-
-                      <div>
-                        <label>Spares ETA</label>
-                        <input
-                          className="textInput"
-                          type="text"
-                          value={machine.sparesEta}
-                          placeholder="e.g. 30 Apr 2026"
-                          onChange={(e) => updateMachineField(machine.fleet, "sparesEta", e.target.value)}
-                        />
-                      </div>
-
-                      <div>
-                        <label>Location</label>
-                        <input
-                          className="textInput"
-                          type="text"
-                          value={machine.location}
-                          onChange={(e) => updateMachineField(machine.fleet, "location", e.target.value)}
-                        />
+                      <div className="adminActions">
+                        {!machine.majorRepair ? (
+                          <button
+                            className="miniAction orangeMini"
+                            onClick={() => setMajorRepair(machine.fleet, true)}
+                          >
+                            Move to major repair
+                          </button>
+                        ) : (
+                          <button
+                            className="miniAction"
+                            onClick={() => setMajorRepair(machine.fleet, false)}
+                          >
+                            Remove from major repair
+                          </button>
+                        )}
                       </div>
                     </div>
-
-                    <div className="adminActions">
-                      {!machine.majorRepair ? (
-                        <button
-                          className="miniAction orangeMini"
-                          onClick={() => setMajorRepair(machine.fleet, true)}
-                        >
-                          Move to major repair
-                        </button>
-                      ) : (
-                        <button
-                          className="miniAction"
-                          onClick={() => setMajorRepair(machine.fleet, false)}
-                        >
-                          Remove from major repair
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
+                  ))}
+                </div>
+              </section>
+            )}
 
             <section className="panel" id="bottom-register">
               <div className="sectionHeading">
@@ -797,7 +809,7 @@ export default function Page() {
           </aside>
         </main>
 
-        {sheetNames.length > 0 && (
+        {role === "admin" && sheetNames.length > 0 && (
           <section className="sheetTabsPanel">
             <div className="sheetTabsHeader">
               <h3>Workbook Sheets</h3>
@@ -1650,8 +1662,9 @@ function normalizeLoadedMachine(machine: Machine): Machine {
   return {
     ...machine,
     type: normalizedType,
-    machineType: normalizedType === "LDV" ? "Light Vehicle" : (machine.machineType || machine.fleet),
-    department: machine.department || inferDepartmentFromType(normalizedType)
+    machineType:
+      normalizedType === "LDV" ? "Light Vehicle" : machine.machineType || machine.fleet,
+    department: machine.department || inferDepartmentFromType(normalizedType),
   };
 }
 
@@ -1685,7 +1698,10 @@ function isSummaryLikeSheet(rows: Record<string, unknown>[]) {
   );
 }
 
-function parseSelectedSheet(sheetName: string, rows: Record<string, unknown>[]): Machine[] {
+function parseSelectedSheet(
+  sheetName: string,
+  rows: Record<string, unknown>[]
+): Machine[] {
   const lower = sheetName.toLowerCase();
 
   if (lower.includes("summary")) {
@@ -1720,10 +1736,13 @@ function mapSummaryRows(rows: Record<string, unknown>[]): Machine[] {
 
       const downtime = Number(n["downtime"] || 0);
       const status =
-        availability >= 85 ? "Available" :
-        availability > 0 ? "Repair" :
-        downtime >= 359 ? "Down" :
-        "Repair";
+        availability >= 85
+          ? "Available"
+          : availability > 0
+          ? "Repair"
+          : downtime >= 359
+          ? "Down"
+          : "Repair";
 
       return normalizeLoadedMachine({
         fleet,
@@ -1736,7 +1755,7 @@ function mapSummaryRows(rows: Record<string, unknown>[]): Machine[] {
         updated: new Date().toLocaleDateString(),
         majorRepair: false,
         repairReason: "",
-        sparesEta: ""
+        sparesEta: "",
       });
     })
     .filter((row): row is Machine => Boolean(row));
@@ -1769,7 +1788,7 @@ function normalizeMachine(row: Record<string, string>): Machine {
     updated: row.updated || new Date().toLocaleDateString(),
     majorRepair,
     repairReason: row.repairreason || row["repair reason"] || "",
-    sparesEta: row.spareseta || row["spares eta"] || ""
+    sparesEta: row.spareseta || row["spares eta"] || "",
   });
 }
 
@@ -1795,7 +1814,7 @@ function inferTypeFromFleet(fleet: string) {
     "EX",
     "DT",
     "TLB",
-    "CARGO"
+    "CARGO",
   ];
 
   for (const prefix of knownHeavyPrefixes) {
@@ -1818,4 +1837,4 @@ function inferDepartmentFromType(type: string) {
   if (["TRT", "TRL", "TDC", "TLB", "CARGO"].includes(t)) return "Logistics";
 
   return "Plant";
-
+}
