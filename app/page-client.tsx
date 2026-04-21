@@ -1,5 +1,6 @@
 "use client";
 
+import { signOut } from "next-auth/react";
 import * as XLSX from "xlsx";
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
 
@@ -349,6 +350,15 @@ export default function DashboardClient({ role }: DashboardClientProps) {
   return (
     <div className="page">
       <div className="shell">
+        <div className="logoutRow">
+          <button
+            className="logoutButton"
+            onClick={() => signOut({ callbackUrl: "/login" })}
+          >
+            Logout
+          </button>
+        </div>
+
         <header className="topbar">
           <div className="logoBox">
             <div className="logoText">TURBO ENERGY</div>
@@ -847,6 +857,23 @@ export default function DashboardClient({ role }: DashboardClientProps) {
           margin: 0 auto;
           padding: 0 0 24px;
           overflow-x: hidden;
+        }
+
+        .logoutRow {
+          width: min(1380px, calc(100% - 24px));
+          margin: 14px auto 0;
+          display: flex;
+          justify-content: flex-end;
+        }
+
+        .logoutButton {
+          padding: 10px 16px;
+          background: #d94141;
+          color: white;
+          border: none;
+          border-radius: 8px;
+          cursor: pointer;
+          font-weight: 700;
         }
 
         .topbar {
