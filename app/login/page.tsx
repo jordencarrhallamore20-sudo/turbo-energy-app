@@ -8,16 +8,12 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
 
   async function handleLogin() {
-    const res = await signIn("credentials", {
+    await signIn("credentials", {
       username,
       password,
       redirect: true,
-      callbackUrl: "/"
+      callbackUrl: "/",
     });
-
-    if (!res) {
-      alert("Login failed");
-    }
   }
 
   return (
