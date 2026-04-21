@@ -1,36 +1,36 @@
 "use client";
 
+import { signIn } from "next-auth/react";
 import { useState } from "react";
 
-export default function Login() {
+export default function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
 
-  const login = async () => {
-    const res = await fetch("/api/auth/callback/credentials", {
-      method: "POST",
-      body: new URLSearchParams({
-        username,
-        password,
-      }),
+  async function handleLogin() {
+    const res = await signIn("credentials", {
+      username,
+      password,
+      redirect: true,
+      callbackUrl: "/"
     });
 
-    if (res.ok) {
-      window.location.href = "/";
-    } else {
+    if (!res) {
       alert("Login failed");
     }
-  };
+  }
 
   return (
     <div style={{ padding: 40 }}>
       <h1>Login</h1>
+
       <input
         placeholder="username"
         value={username}
         onChange={(e) => setUsername(e.target.value)}
       />
       <br />
+
       <input
         placeholder="password"
         type="password"
@@ -38,7 +38,8 @@ export default function Login() {
         onChange={(e) => setPassword(e.target.value)}
       />
       <br />
-      <button onClick={login}>Login</button>
+
+      <button onClick={handleLogin}>Login</button>
     </div>
   );
 }
