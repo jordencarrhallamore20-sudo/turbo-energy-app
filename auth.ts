@@ -10,14 +10,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
-        const username = String(credentials?.username ?? "");
+        const username = String(credentials?.username ?? "").trim();
         const password = String(credentials?.password ?? "");
 
         if (username === "admin" && password === "@workshop2121") {
           return {
             id: "1",
             name: "Admin",
-            email: "admin@turbo.local",
             role: "admin",
           };
         }
@@ -26,7 +25,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           return {
             id: "2",
             name: "User",
-            email: "user@turbo.local",
             role: "user",
           };
         }
@@ -37,7 +35,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   ],
   callbacks: {
     async jwt({ token, user }) {
-      if (user && "role" in user) {
+      if (user) {
         token.role = (user as { role?: string }).role;
       }
       return token;
