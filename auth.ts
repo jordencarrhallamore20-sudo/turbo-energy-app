@@ -5,20 +5,51 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   session: { strategy: "jwt" },
   providers: [
     Credentials({
+      credentials: {
+        username: { label: "Username", type: "text" },
+        password: { label: "Password", type: "password" },
+      },
       async authorize(credentials) {
-        const username = credentials?.username;
-        const password = credentials?.password;
+        const username = String(credentials?.username ?? "");
+        const password = String(credentials?.password ?? "");
 
-        if (username === "admin" && password === "admin123") {
-          return { name: "Admin", role: "admin" };
+        if (username === "admin" && password === "@workshop2121") {
+          return {
+            id: "1",
+            name: "Admin",
+            email: "admin@turbo.local",
+            role: "admin",
+          };
         }
 
         if (username === "user" && password === "user123") {
-          return { name: "User", role: "user" };
+          return {
+            id: "2",
+            name: "User",
+            email: "user@turbo.local",
+            role: "user",
+          };
         }
 
         return null;
       },
     }),
   ],
+  callbacks: {
+    async jwt({ token, user }) {
+      if (user && "role" in user) {
+        token.role = (user as { role?: string }).role;
+      }
+      return token;
+    },
+    async session({ session, token }) {
+      if (session.user) {
+        (session.user as { role?: string }).role = token.role as string | undefined;
+      }
+      return session;
+    },
+  },
+  pages: {
+    signIn: "/login",
+  },
 });
