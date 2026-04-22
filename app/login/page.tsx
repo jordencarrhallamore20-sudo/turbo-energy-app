@@ -17,16 +17,16 @@ export default function LoginPage() {
       username,
       password,
       redirect: false,
+      callbackUrl: "/",
     });
 
-    setLoading(false);
-
-    if (result?.ok) {
-      window.location.href = "/";
+    if (result?.error) {
+      setLoading(false);
+      setErrorMessage("Wrong username or password");
       return;
     }
 
-    setErrorMessage("Wrong username or password");
+    window.location.href = result?.url || "/";
   }
 
   return (
