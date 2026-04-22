@@ -9,5 +9,10 @@ export default async function Page() {
     redirect("/login");
   }
 
-  return <DashboardClient role={(session.user as { role?: string }).role ?? "user"} />;
+  return (
+    <DashboardClient
+      role={(session.user as { role?: string }).role ?? "user"}
+      username={session.user.name ?? "User"}
+    />
+  );
 }
