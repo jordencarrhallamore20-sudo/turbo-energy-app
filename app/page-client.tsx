@@ -43,6 +43,8 @@ const sampleData: Machine[] = [
 const departments = ["Plant", "Mining", "Logistics", "Admin", "Workshop"];
 
 export default function DashboardClient({ role }: DashboardClientProps) {
+  const isAdmin = role === "admin";
+
   const [machines, setMachines] = useState<Machine[]>([]);
   const [selectedType, setSelectedType] = useState("ALL");
   const [search, setSearch] = useState("");
@@ -157,6 +159,8 @@ export default function DashboardClient({ role }: DashboardClientProps) {
     field: keyof Machine,
     value: string | number | boolean
   ) => {
+    if (!isAdmin) return;
+
     const updated = machines.map((machine) =>
       machine.fleet === fleet
         ? normalizeLoadedMachine({ ...machine, [field]: value, updated: new Date().toLocaleDateString() })
@@ -166,6 +170,8 @@ export default function DashboardClient({ role }: DashboardClientProps) {
   };
 
   const setMajorRepair = (fleet: string, enabled: boolean) => {
+    if (!isAdmin) return;
+
     const updated = machines.map((machine) => {
       if (machine.fleet !== fleet) return machine;
 
@@ -183,6 +189,8 @@ export default function DashboardClient({ role }: DashboardClientProps) {
   };
 
   const handleExport = () => {
+    if (!isAdmin) return;
+
     const headers = [
       "fleet",
       "type",
@@ -224,6 +232,7 @@ export default function DashboardClient({ role }: DashboardClientProps) {
   };
 
   const handlePrint = () => {
+    if (!isAdmin) return;
     window.print();
   };
 
@@ -242,6 +251,8 @@ export default function DashboardClient({ role }: DashboardClientProps) {
   };
 
   const handleSpreadsheetUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    if (!isAdmin) return;
+
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -315,6 +326,8 @@ export default function DashboardClient({ role }: DashboardClientProps) {
   };
 
   const loadSheetByName = (sheetName: string) => {
+    if (!isAdmin) return;
+
     const selected = workbookSheets.find((s) => s.name === sheetName);
     if (!selected) return;
 
@@ -370,7 +383,7 @@ export default function DashboardClient({ role }: DashboardClientProps) {
           </div>
 
           <div className="topActions">
-            {role === "admin" && (
+            {isAdmin && (
               <label htmlFor="csvUploadTop" className="pillButton primaryPill">
                 Upload File
               </label>
@@ -396,7 +409,7 @@ export default function DashboardClient({ role }: DashboardClientProps) {
               <KpiCard icon="📍" title="LOCATIONS" value={locationCount} note="Distinct operating locations" />
             </div>
 
-            {role === "admin" && (
+            {isAdmin && (
               <section className="panel">
                 <div className="panelHeader">
                   <div>
@@ -517,13 +530,13 @@ export default function DashboardClient({ role }: DashboardClientProps) {
                       <th>Reason</th>
                       <th>Spares ETA</th>
                       <th>Status</th>
-                      {role === "admin" && <th>Action</th>}
+                      {isAdmin && <th>Action</th>}
                     </tr>
                   </thead>
                   <tbody>
                     {majorRepairsList.length === 0 ? (
                       <tr>
-                        <td colSpan={role === "admin" ? 7 : 6}>No machines on major repair.</td>
+                        <td colSpan={isAdmin ? 7 : 6}>No machines on major repair.</td>
                       </tr>
                     ) : (
                       majorRepairsList.map((machine) => (
@@ -536,7 +549,7 @@ export default function DashboardClient({ role }: DashboardClientProps) {
                           <td>
                             <span className="statusPill statusMajor">Major Repair</span>
                           </td>
-                          {role === "admin" && (
+                          {isAdmin && (
                             <td>
                               <button
                                 className="miniAction"
@@ -615,12 +628,14 @@ export default function DashboardClient({ role }: DashboardClientProps) {
                 </div>
 
                 <div className="mutedCard">
-                  Light vehicle registrations are grouped into LDV and old saved values are corrected on load.
+                  {isAdmin
+                    ? "You are logged in as admin. Editing controls are enabled."
+                    : "You are logged in as user. This is view-only mode."}
                 </div>
               </div>
             </section>
 
-            {role === "admin" && (
+            {isAdmin && (
               <section className="panel">
                 <div className="sectionHeading">
                   <h2>Admin Machine Controls</h2>
@@ -819,7 +834,7 @@ export default function DashboardClient({ role }: DashboardClientProps) {
           </aside>
         </main>
 
-        {role === "admin" && sheetNames.length > 0 && (
+        {isAdmin && sheetNames.length > 0 && (
           <section className="sheetTabsPanel">
             <div className="sheetTabsHeader">
               <h3>Workbook Sheets</h3>
