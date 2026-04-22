@@ -160,18 +160,29 @@ export default function DashboardClient({ role, username }: DashboardClientProps
     field: keyof Machine,
     value: string | number | boolean
   ) => {
-    if (!isAdmin) return;
+    if (!isAdmin) {
+      alert("Access denied: admin only");
+      return;
+    }
 
     const updated = machines.map((machine) =>
       machine.fleet === fleet
-        ? normalizeLoadedMachine({ ...machine, [field]: value, updated: new Date().toLocaleDateString() })
+        ? normalizeLoadedMachine({
+            ...machine,
+            [field]: value,
+            updated: new Date().toLocaleDateString(),
+          })
         : machine
     );
+
     saveMachines(updated);
   };
 
   const setMajorRepair = (fleet: string, enabled: boolean) => {
-    if (!isAdmin) return;
+    if (!isAdmin) {
+      alert("Access denied: admin only");
+      return;
+    }
 
     const updated = machines.map((machine) => {
       if (machine.fleet !== fleet) return machine;
@@ -182,7 +193,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
         status: enabled ? "Major Repair" : "Available",
         repairReason: enabled ? machine.repairReason : "",
         sparesEta: enabled ? machine.sparesEta : "",
-        updated: new Date().toLocaleDateString()
+        updated: new Date().toLocaleDateString(),
       });
     });
 
@@ -190,7 +201,10 @@ export default function DashboardClient({ role, username }: DashboardClientProps
   };
 
   const handleExport = () => {
-    if (!isAdmin) return;
+    if (!isAdmin) {
+      alert("Access denied: admin only");
+      return;
+    }
 
     const headers = [
       "fleet",
@@ -233,7 +247,10 @@ export default function DashboardClient({ role, username }: DashboardClientProps
   };
 
   const handlePrint = () => {
-    if (!isAdmin) return;
+    if (!isAdmin) {
+      alert("Access denied: admin only");
+      return;
+    }
     window.print();
   };
 
@@ -252,7 +269,10 @@ export default function DashboardClient({ role, username }: DashboardClientProps
   };
 
   const handleSpreadsheetUpload = async (event: ChangeEvent<HTMLInputElement>) => {
-    if (!isAdmin) return;
+    if (!isAdmin) {
+      alert("Admin only");
+      return;
+    }
 
     const file = event.target.files?.[0];
     if (!file) return;
@@ -327,7 +347,10 @@ export default function DashboardClient({ role, username }: DashboardClientProps
   };
 
   const loadSheetByName = (sheetName: string) => {
-    if (!isAdmin) return;
+    if (!isAdmin) {
+      alert("Access denied: admin only");
+      return;
+    }
 
     const selected = workbookSheets.find((s) => s.name === sheetName);
     if (!selected) return;
