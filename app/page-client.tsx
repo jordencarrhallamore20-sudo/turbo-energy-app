@@ -25,6 +25,7 @@ type WorkbookSheetData = {
 
 type DashboardClientProps = {
   role: string;
+  username: string;
 };
 
 const sampleData: Machine[] = [
@@ -42,7 +43,7 @@ const sampleData: Machine[] = [
 
 const departments = ["Plant", "Mining", "Logistics", "Admin", "Workshop"];
 
-export default function DashboardClient({ role }: DashboardClientProps) {
+export default function DashboardClient({ role, username }: DashboardClientProps) {
   const isAdmin = role === "admin";
 
   const [machines, setMachines] = useState<Machine[]>([]);
@@ -363,7 +364,10 @@ export default function DashboardClient({ role }: DashboardClientProps) {
   return (
     <div className="page">
       <div className="shell">
-        <div className="logoutRow">
+        <div className="topMetaRow">
+          <div className="userBadge">
+            Logged in as: <strong>{username}</strong> ({isAdmin ? "admin" : "user"})
+          </div>
           <button
             className="logoutButton"
             onClick={() => signOut({ callbackUrl: "/login" })}
@@ -442,7 +446,7 @@ export default function DashboardClient({ role }: DashboardClientProps) {
                 </div>
 
                 <div className="infoBox">
-                  Excel upload now uses <strong>Summary</strong> first, then <strong>Summary (Excl Tyre)</strong>. Registration-style light vehicles are grouped into <strong>LDV</strong>. Saved local data is also normalized so old ABH / AEK / AEX type values get corrected automatically.
+                  Excel upload now uses <strong>Summary</strong> first, then <strong>Summary (Excl Tyre)</strong>. Registration-style light vehicles are grouped into <strong>LDV</strong>.
                 </div>
               </section>
             )}
@@ -874,11 +878,24 @@ export default function DashboardClient({ role }: DashboardClientProps) {
           overflow-x: hidden;
         }
 
-        .logoutRow {
+        .topMetaRow {
           width: min(1380px, calc(100% - 24px));
           margin: 14px auto 0;
           display: flex;
-          justify-content: flex-end;
+          justify-content: space-between;
+          align-items: center;
+          gap: 12px;
+          flex-wrap: wrap;
+        }
+
+        .userBadge {
+          border: 1px solid rgba(255,255,255,0.14);
+          background: rgba(10, 23, 52, 0.5);
+          color: white;
+          border-radius: 999px;
+          padding: 10px 16px;
+          font-size: 14px;
+          font-weight: 700;
         }
 
         .logoutButton {
@@ -899,8 +916,9 @@ export default function DashboardClient({ role }: DashboardClientProps) {
           padding: 14px 18px;
           background: linear-gradient(180deg, rgba(23, 50, 95, 0.96), rgba(13, 34, 74, 0.96));
           border: 1px solid rgba(255,255,255,0.09);
-          border-radius: 0 0 18px 18px;
+          border-radius: 18px;
           box-shadow: 0 18px 40px rgba(0,0,0,0.24);
+          margin-top: 12px;
         }
 
         .logoBox {
@@ -1643,7 +1661,8 @@ export default function DashboardClient({ role }: DashboardClientProps) {
           }
 
           .bottomLine,
-          .adminTop {
+          .adminTop,
+          .topMetaRow {
             flex-direction: column;
             align-items: flex-start;
           }
