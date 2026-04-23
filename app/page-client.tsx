@@ -6,6 +6,7 @@ import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 
 type Machine = {
+  id?: number;
   fleet: string;
   type: string;
   machineType: string;
@@ -45,8 +46,6 @@ type DashboardClientProps = {
   username: string;
 };
 
-type RegisterFilter = "ALL" | "AVAILABLE" | "DOWN" | "MAJOR";
-
 const sampleData: Machine[] = [
   {
     fleet: "FEL09",
@@ -60,8 +59,8 @@ const sampleData: Machine[] = [
     majorRepair: false,
     repairReason: "",
     sparesEta: "",
-    hoursWorked: 210,
-    hoursDown: 8,
+    hoursWorked: 20,
+    hoursDown: 4,
     onlineStatus: "Online",
     downtimeReason: ""
   },
@@ -77,8 +76,8 @@ const sampleData: Machine[] = [
     majorRepair: false,
     repairReason: "",
     sparesEta: "",
-    hoursWorked: 224,
-    hoursDown: 4,
+    hoursWorked: 22,
+    hoursDown: 2,
     onlineStatus: "Online",
     downtimeReason: ""
   },
@@ -92,12 +91,12 @@ const sampleData: Machine[] = [
     availability: 75,
     updated: "18 Apr 2026",
     majorRepair: false,
-    repairReason: "Hydraulic leak",
-    sparesEta: "26 Apr 2026",
-    hoursWorked: 166,
-    hoursDown: 24,
+    repairReason: "",
+    sparesEta: "",
+    hoursWorked: 14,
+    hoursDown: 8,
     onlineStatus: "Offline",
-    downtimeReason: "Hydraulic system repair"
+    downtimeReason: "Hydraulic leak"
   },
   {
     fleet: "TRT07",
@@ -111,7 +110,7 @@ const sampleData: Machine[] = [
     majorRepair: false,
     repairReason: "",
     sparesEta: "",
-    hoursWorked: 250,
+    hoursWorked: 24,
     hoursDown: 0,
     onlineStatus: "Online",
     downtimeReason: ""
@@ -128,15 +127,33 @@ const sampleData: Machine[] = [
     majorRepair: true,
     repairReason: "Engine rebuild",
     sparesEta: "25 Apr 2026",
-    hoursWorked: 120,
-    hoursDown: 80,
+    hoursWorked: 0,
+    hoursDown: 24,
     onlineStatus: "Offline",
     downtimeReason: "Engine rebuild"
+  },
+  {
+    fleet: "AFE 5504",
+    type: "LDV",
+    machineType: "Light Vehicle",
+    status: "Available",
+    location: "Hwange",
+    department: "Logistics",
+    availability: 92,
+    updated: "19 Apr 2026",
+    majorRepair: false,
+    repairReason: "",
+    sparesEta: "",
+    hoursWorked: 18,
+    hoursDown: 1,
+    onlineStatus: "Online",
+    downtimeReason: ""
   }
 ];
 
 const departments = ["Plant", "Mining", "Logistics", "Admin", "Workshop"];
-const onlineStatuses = ["Online", "Offline", "Standby"];
+const statusOptions = ["ALL", "Available", "Repair", "Maintenance", "Down", "Major Repair"];
+const onlineOptions = ["Online", "Offline"];
 
 export default function DashboardClient({ role, username }: DashboardClientProps) {
   const isAdmin = role === "admin";
@@ -144,14 +161,14 @@ export default function DashboardClient({ role, username }: DashboardClientProps
   const [machines, setMachines] = useState<Machine[]>([]);
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
   const [selectedType, setSelectedType] = useState("ALL");
-  const [registerFilter, setRegisterFilter] = useState<RegisterFilter>("ALL");
+  const [selectedStatus, setSelectedStatus] = useState("ALL");
   const [search, setSearch] = useState("");
   const [fileName, setFileName] = useState("No file chosen");
   const [sheetNames, setSheetNames] = useState<string[]>([]);
   const [workbookSheets, setWorkbookSheets] = useState<WorkbookSheetData[]>([]);
   const [activeSheet, setActiveSheet] = useState("");
   const [loadingData, setLoadingData] = useState(true);
-  const [selectedFleet, setSelectedFleet] = useState("");
+  const [selectedMachine, setSelectedMachine] = useState<Machine | null>(null);
 
   useEffect(() => {
     void Promise.all([loadMachinesFromSupabase(), loadHistoryFromSupabase()]);
@@ -164,30 +181,35 @@ export default function DashboardClient({ role, username }: DashboardClientProps
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    if (!selectedMachine) return;
+    const fresh = machines.find((m) => m.fleet === selectedMachine.fleet);
+    if (fresh) setSelectedMachine(fresh);
+  }, [machines, selectedMachine]);
+
   async function loadMachinesFromSupabase(showLoader = true) {
     if (showLoader) setLoadingData(true);
 
     const { data, error } = await supabase
       .from("machines")
       .select(
-        'fleet,type,machineType,status,location,department,availability,updated,majorRepair,repairReason,sparesEta,hoursWorked,hoursDown,onlineStatus,downtimeReason'
+        "id,fleet,type,machineType,status,location,department,availability,updated,majorRepair,repairReason,sparesEta,hoursWorked,hoursDown,onlineStatus,downtimeReason"
       );
 
     if (error) {
       console.error("Supabase load error:", error);
-      const fallback = sampleData.map(normalizeLoadedMachine);
-      setMachines(fallback);
-      if (!selectedFleet && fallback.length > 0) setSelectedFleet(fallback[0].fleet);
+      setMachines(sampleData.map(normalizeLoadedMachine));
       setLoadingData(false);
       return;
     }
 
-    const loaded = (data as Partial<Machine>[] | null)?.length
-      ? (data as Partial<Machine>[]).map((item) => normalizeLoadedMachine(item))
-      : sampleData.map(normalizeLoadedMachine);
+    if (!data || data.length === 0) {
+      setMachines(sampleData.map(normalizeLoadedMachine));
+      setLoadingData(false);
+      return;
+    }
 
-    setMachines(loaded);
-    if (!selectedFleet && loaded.length > 0) setSelectedFleet(loaded[0].fleet);
+    setMachines((data as Machine[]).map(normalizeLoadedMachine));
     setLoadingData(false);
   }
 
@@ -196,7 +218,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
       .from("machine_history")
       .select("*")
       .order("created_at", { ascending: false })
-      .limit(100);
+      .limit(20);
 
     if (error) {
       console.error("History load error:", error);
@@ -283,27 +305,24 @@ export default function DashboardClient({ role, username }: DashboardClientProps
   const repairsMachines = mainMachines.filter((m) => !m.status.toLowerCase().includes("avail")).length;
   const majorRepairsMachines = machines.filter((m) => m.majorRepair).length;
   const locationCount = new Set(machines.map((m) => m.location)).size;
+  const onlineCount = machines.filter((m) => String(m.onlineStatus).toLowerCase() === "online").length;
+  const offlineCount = machines.filter((m) => String(m.onlineStatus).toLowerCase() !== "online").length;
 
   const typeOptions = useMemo(() => {
     return ["ALL", ...Array.from(new Set(machines.map((m) => normalizeTypeLabel(m.type)))).sort()];
   }, [machines]);
 
-  const selectedMachine = useMemo(
-    () => machines.find((machine) => machine.fleet === selectedFleet) || filteredFallbackMachine(machines),
-    [machines, selectedFleet]
-  );
-
-  const selectedMachineHistory = useMemo(() => {
-    if (!selectedMachine) return [];
-    return historyItems.filter((item) => item.fleet === selectedMachine.fleet).slice(0, 12);
-  }, [historyItems, selectedMachine]);
-
   const filteredMachines = useMemo(() => {
     return machines.filter((machine) => {
-      const matchesType =
-        selectedType === "ALL" || normalizeTypeLabel(machine.type) === selectedType;
+      const matchesType = selectedType === "ALL" || normalizeTypeLabel(machine.type) === selectedType;
+      const matchesStatus =
+        selectedStatus === "ALL" ||
+        (selectedStatus === "Major Repair"
+          ? machine.majorRepair
+          : machine.status.toLowerCase() === selectedStatus.toLowerCase());
 
       const term = search.trim().toLowerCase();
+
       const matchesSearch =
         term === "" ||
         machine.fleet.toLowerCase().includes(term) ||
@@ -313,22 +332,12 @@ export default function DashboardClient({ role, username }: DashboardClientProps
         machine.location.toLowerCase().includes(term) ||
         machine.department.toLowerCase().includes(term) ||
         machine.repairReason.toLowerCase().includes(term) ||
+        machine.onlineStatus.toLowerCase().includes(term) ||
         machine.downtimeReason.toLowerCase().includes(term);
 
-      let matchesRegisterFilter = true;
-      if (registerFilter === "AVAILABLE") {
-        matchesRegisterFilter = !machine.majorRepair && machine.status.toLowerCase().includes("avail");
-      } else if (registerFilter === "DOWN") {
-        matchesRegisterFilter =
-          machine.majorRepair ||
-          !machine.status.toLowerCase().includes("avail");
-      } else if (registerFilter === "MAJOR") {
-        matchesRegisterFilter = machine.majorRepair;
-      }
-
-      return matchesType && matchesSearch && matchesRegisterFilter;
+      return matchesType && matchesStatus && matchesSearch;
     });
-  }, [machines, registerFilter, search, selectedType]);
+  }, [machines, search, selectedType, selectedStatus]);
 
   const topSummary = mainMachines.slice(0, 8);
   const majorRepairsList = useMemo(() => machines.filter((m) => m.majorRepair), [machines]);
@@ -373,11 +382,11 @@ export default function DashboardClient({ role, username }: DashboardClientProps
     });
   }, [machines]);
 
-  async function updateMachineField(
+  const updateMachineField = async (
     fleet: string,
     field: keyof Machine,
     value: string | number | boolean
-  ) {
+  ) => {
     if (!isAdmin) {
       alert("Access denied: admin only");
       return;
@@ -410,9 +419,9 @@ export default function DashboardClient({ role, username }: DashboardClientProps
         notes: `${field} changed on ${fleet}`
       });
     }
-  }
+  };
 
-  async function setMajorRepair(fleet: string, enabled: boolean) {
+  const setMajorRepair = async (fleet: string, enabled: boolean) => {
     if (!isAdmin) {
       alert("Access denied: admin only");
       return;
@@ -430,7 +439,8 @@ export default function DashboardClient({ role, username }: DashboardClientProps
         status: enabled ? "Major Repair" : "Available",
         repairReason: enabled ? machine.repairReason : "",
         sparesEta: enabled ? machine.sparesEta : "",
-        onlineStatus: enabled ? "Offline" : machine.onlineStatus || "Online",
+        downtimeReason: enabled ? machine.downtimeReason || machine.repairReason : "",
+        onlineStatus: enabled ? "Offline" : machine.onlineStatus,
         updated: new Date().toLocaleDateString(),
       });
     });
@@ -446,9 +456,9 @@ export default function DashboardClient({ role, username }: DashboardClientProps
         notes: enabled ? "Machine moved out of active fleet" : "Machine returned to active fleet"
       });
     }
-  }
+  };
 
-  function handleExport() {
+  const handleExport = () => {
     if (!isAdmin) {
       alert("Access denied: admin only");
       return;
@@ -500,21 +510,21 @@ export default function DashboardClient({ role, username }: DashboardClientProps
     link.download = "turbo-machine-register.csv";
     link.click();
     URL.revokeObjectURL(url);
-  }
+  };
 
-  function handlePrint() {
+  const handlePrint = () => {
     if (!isAdmin) {
       alert("Access denied: admin only");
       return;
     }
     window.print();
-  }
+  };
 
-  async function handleRefresh() {
+  const handleRefresh = async () => {
     await Promise.all([loadMachinesFromSupabase(), loadHistoryFromSupabase()]);
-  }
+  };
 
-  async function handleSpreadsheetUpload(event: ChangeEvent<HTMLInputElement>) {
+  const handleSpreadsheetUpload = async (event: ChangeEvent<HTMLInputElement>) => {
     if (!isAdmin) {
       alert("Admin only");
       return;
@@ -543,7 +553,6 @@ export default function DashboardClient({ role, username }: DashboardClientProps
           setSheetNames(["CSV"]);
           setWorkbookSheets([{ name: "CSV", rows: [] }]);
           setActiveSheet("CSV");
-          setSelectedFleet(parsed[0]?.fleet || "");
         } else {
           alert("CSV uploaded but no valid rows were found.");
         }
@@ -591,7 +600,6 @@ export default function DashboardClient({ role, username }: DashboardClientProps
             });
           }
           setActiveSheet(preferredSheet.name);
-          setSelectedFleet(parsed[0]?.fleet || "");
         } else {
           alert("Spreadsheet loaded, but the selected sheet did not contain machine summary rows.");
         }
@@ -604,9 +612,9 @@ export default function DashboardClient({ role, username }: DashboardClientProps
       console.error(error);
       alert("Could not read spreadsheet file.");
     }
-  }
+  };
 
-  async function loadSheetByName(sheetName: string) {
+  const loadSheetByName = async (sheetName: string) => {
     if (!isAdmin) {
       alert("Access denied: admin only");
       return;
@@ -626,45 +634,52 @@ export default function DashboardClient({ role, username }: DashboardClientProps
         });
       }
       setActiveSheet(sheetName);
-      setSelectedFleet(parsed[0]?.fleet || "");
     } else {
       alert(`Sheet "${sheetName}" does not contain machine summary rows for the dashboard.`);
     }
-  }
+  };
 
-  function scrollToBottomRegister() {
+  const scrollToBottomRegister = () => {
     const el = document.getElementById("bottom-register");
     if (el) el.scrollIntoView({ behavior: "smooth" });
-  }
+  };
 
-  function showAvailableOnly() {
-    setRegisterFilter("AVAILABLE");
+  const showBelow85Only = () => {
     setSelectedType("ALL");
+    setSelectedStatus("ALL");
     setSearch("");
-    scrollToBottomRegister();
-  }
+    const el = document.getElementById("below85");
+    if (el) el.scrollIntoView({ behavior: "smooth" });
+  };
 
-  function showRepairsDownOnly() {
-    setRegisterFilter("DOWN");
+  const showMajorRepairsOnly = () => {
     setSelectedType("ALL");
-    setSearch("");
-    scrollToBottomRegister();
-  }
-
-  function showMajorRepairsOnly() {
-    setRegisterFilter("MAJOR");
-    setSelectedType("ALL");
+    setSelectedStatus("Major Repair");
     setSearch("");
     const el = document.getElementById("major-repairs");
     if (el) el.scrollIntoView({ behavior: "smooth" });
-  }
+  };
 
-  function showAllMachines() {
-    setRegisterFilter("ALL");
+  const showRepairsDownOnly = () => {
     setSelectedType("ALL");
+    setSelectedStatus("ALL");
     setSearch("");
-    scrollToBottomRegister();
-  }
+    const el = document.getElementById("bottom-register");
+    if (el) el.scrollIntoView({ behavior: "smooth" });
+  };
+
+  const below85List = useMemo(
+    () => mainMachines.filter((m) => Number(m.availability) < 85),
+    [mainMachines]
+  );
+
+  const repairsDownList = useMemo(
+    () =>
+      mainMachines.filter(
+        (m) => !m.status.toLowerCase().includes("avail") || m.onlineStatus.toLowerCase() !== "online"
+      ),
+    [mainMachines]
+  );
 
   if (loadingData) {
     return (
@@ -693,7 +708,10 @@ export default function DashboardClient({ role, username }: DashboardClientProps
           <div className="userBadge">
             Logged in as: <strong>{username}</strong> ({isAdmin ? "admin" : "user"})
           </div>
-          <button className="logoutButton" onClick={() => signOut({ callbackUrl: "/login" })}>
+          <button
+            className="logoutButton"
+            onClick={() => signOut({ callbackUrl: "/login" })}
+          >
             Logout
           </button>
         </div>
@@ -705,7 +723,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
 
           <div className="titleWrap">
             <h1>Turbo-Energy Machine Availability</h1>
-            <p>Live fleet dashboard with admin movements, departments, repairs, history, and machine details</p>
+            <p>Live fleet dashboard with admin movements, departments, repairs, hours, online status, and history</p>
           </div>
 
           <div className="topActions">
@@ -714,13 +732,16 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                 Upload File
               </label>
             )}
-            <button className="pillButton" onClick={showRepairsDownOnly}>
+            <button className="pillButton" onClick={showBelow85Only}>
               Units Below 85%
             </button>
             <button className="pillButton" onClick={showMajorRepairsOnly}>
               Major Repairs
             </button>
-            <button className="pillButton" onClick={showAllMachines}>
+            <button className="pillButton" onClick={showRepairsDownOnly}>
+              Repairs / Down
+            </button>
+            <button className="pillButton" onClick={scrollToBottomRegister}>
               Bottom Register
             </button>
           </div>
@@ -729,10 +750,12 @@ export default function DashboardClient({ role, username }: DashboardClientProps
         <main className="dashboardGrid">
           <section className="leftColumn">
             <div className="kpiGrid">
-              <KpiCard icon="🏗" title="TOTAL MACHINES" value={totalMachines} note="All units in the register" onClick={showAllMachines} />
-              <KpiCard icon="✅" title="AVAILABLE" value={availableMachines} note="Active units marked available" onClick={showAvailableOnly} />
-              <KpiCard icon="🔧" title="REPAIRS / DOWN" value={repairsMachines} note="Active units needing attention" onClick={showRepairsDownOnly} />
+              <KpiCard icon="🏗" title="TOTAL MACHINES" value={totalMachines} note="All units in the register" />
+              <KpiCard icon="✅" title="AVAILABLE" value={availableMachines} note="Active units marked available" />
+              <KpiCard icon="🔧" title="REPAIRS / DOWN" value={repairsMachines} note="Active units needing attention" />
               <KpiCard icon="📍" title="LOCATIONS" value={locationCount} note="Distinct operating locations" />
+              <KpiCard icon="🟢" title="ONLINE" value={onlineCount} note="Units currently online" />
+              <KpiCard icon="🔴" title="OFFLINE" value={offlineCount} note="Units currently offline" />
             </div>
 
             {isAdmin && (
@@ -768,7 +791,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                 </div>
 
                 <div className="infoBox">
-                  Shared mode and history are active. You can now click Repairs / Down, select machines, and see hours, reasons, status, and history.
+                  Admin changes save to Supabase and are logged in Recent Activity. Click any machine row to open the detailed view.
                 </div>
               </section>
             )}
@@ -855,6 +878,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                       <th>Department</th>
                       <th>Reason</th>
                       <th>Spares ETA</th>
+                      <th>Hours Down</th>
                       <th>Status</th>
                       {isAdmin && <th>Action</th>}
                     </tr>
@@ -862,20 +886,26 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                   <tbody>
                     {majorRepairsList.length === 0 ? (
                       <tr>
-                        <td colSpan={isAdmin ? 7 : 6}>No machines on major repair.</td>
+                        <td colSpan={isAdmin ? 8 : 7}>No machines on major repair.</td>
                       </tr>
                     ) : (
                       majorRepairsList.map((machine) => (
-                        <tr key={machine.fleet}>
+                        <tr key={machine.fleet} className="clickableRow" onClick={() => setSelectedMachine(machine)}>
                           <td>{machine.fleet}</td>
                           <td>{machine.machineType}</td>
                           <td>{machine.department}</td>
                           <td>{machine.repairReason || machine.downtimeReason || "-"}</td>
                           <td>{machine.sparesEta || "-"}</td>
-                          <td><span className="statusPill statusMajor">Major Repair</span></td>
+                          <td>{machine.hoursDown}</td>
+                          <td>
+                            <span className="statusPill statusMajor">Major Repair</span>
+                          </td>
                           {isAdmin && (
-                            <td>
-                              <button className="miniAction" onClick={() => void setMajorRepair(machine.fleet, false)}>
+                            <td onClick={(e) => e.stopPropagation()}>
+                              <button
+                                className="miniAction"
+                                onClick={() => void setMajorRepair(machine.fleet, false)}
+                              >
                                 Return to main list
                               </button>
                             </td>
@@ -888,88 +918,91 @@ export default function DashboardClient({ role, username }: DashboardClientProps
               </div>
             </section>
 
-            {selectedMachine && (
-              <section className="panel">
-                <div className="sectionHeading">
-                  <h2>Selected Machine Detail</h2>
-                  <p>Full machine detail, status, hours, reasons, and availability history.</p>
-                </div>
+            <section className="panel" id="below85">
+              <div className="sectionHeading">
+                <h2>Units Below 85%</h2>
+                <p>Quick list of units below the target availability.</p>
+              </div>
 
-                <div className="detailGrid">
-                  <div className="detailCard">
-                    <h3>{selectedMachine.fleet}</h3>
-                    <p>{selectedMachine.machineType}</p>
-                    <span className={`statusPill ${getStatusClass(selectedMachine.status, selectedMachine.majorRepair)}`}>
-                      {selectedMachine.majorRepair ? "Major Repair" : selectedMachine.status}
-                    </span>
-                  </div>
+              <div className="tableWrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Fleet</th>
+                      <th>Machine</th>
+                      <th>Status</th>
+                      <th>Availability</th>
+                      <th>Hours Down</th>
+                      <th>Downtime Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {below85List.length === 0 ? (
+                      <tr>
+                        <td colSpan={6}>No units below 85%.</td>
+                      </tr>
+                    ) : (
+                      below85List.map((machine) => (
+                        <tr key={machine.fleet} className="clickableRow" onClick={() => setSelectedMachine(machine)}>
+                          <td>{machine.fleet}</td>
+                          <td>{machine.machineType}</td>
+                          <td>
+                            <span className={`statusPill ${getStatusClass(machine.status, machine.majorRepair)}`}>
+                              {machine.majorRepair ? "Major Repair" : machine.status}
+                            </span>
+                          </td>
+                          <td>{machine.availability}%</td>
+                          <td>{machine.hoursDown}</td>
+                          <td>{machine.downtimeReason || machine.repairReason || "-"}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
 
-                  <div className="detailMini">
-                    <label>Availability</label>
-                    <strong>{selectedMachine.availability}%</strong>
-                  </div>
+            <section className="panel">
+              <div className="sectionHeading">
+                <h2>Top Machine Summary</h2>
+                <p>Quick summary of active machines only.</p>
+              </div>
 
-                  <div className="detailMini">
-                    <label>Online / Offline</label>
-                    <strong>{selectedMachine.onlineStatus}</strong>
-                  </div>
-
-                  <div className="detailMini">
-                    <label>Hours Worked</label>
-                    <strong>{selectedMachine.hoursWorked}</strong>
-                  </div>
-
-                  <div className="detailMini">
-                    <label>Hours Down</label>
-                    <strong>{selectedMachine.hoursDown}</strong>
-                  </div>
-
-                  <div className="detailMini">
-                    <label>Department</label>
-                    <strong>{selectedMachine.department}</strong>
-                  </div>
-
-                  <div className="detailMini">
-                    <label>Location</label>
-                    <strong>{selectedMachine.location}</strong>
-                  </div>
-
-                  <div className="detailWide">
-                    <label>Repair / Downtime Reason</label>
-                    <strong>{selectedMachine.downtimeReason || selectedMachine.repairReason || "-"}</strong>
-                  </div>
-
-                  <div className="detailWide">
-                    <label>Availability History</label>
-                    <div className="historyStack compactHistory">
-                      {selectedMachineHistory.length === 0 ? (
-                        <div className="mutedCard">No history yet for this machine.</div>
-                      ) : (
-                        selectedMachineHistory.map((item) => (
-                          <div key={item.id} className="historyCard">
-                            <div className="historyTop">
-                              <strong>{item.action}</strong>
-                              <span>{formatHistoryDate(item.created_at)}</span>
-                            </div>
-                            <div className="historyMeta">
-                              <span><strong>User:</strong> {item.actor || "-"}</span>
-                              {item.field ? <span><strong>Field:</strong> {item.field}</span> : null}
-                            </div>
-                            {(item.old_value || item.new_value) && (
-                              <div className="historyChange">
-                                <span><strong>Old:</strong> {item.old_value || "-"}</span>
-                                <span><strong>New:</strong> {item.new_value || "-"}</span>
-                              </div>
-                            )}
-                            {item.notes ? <div className="historyNotes">{item.notes}</div> : null}
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </section>
-            )}
+              <div className="tableWrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Fleet Number</th>
+                      <th>Machine Type</th>
+                      <th>Status</th>
+                      <th>Online</th>
+                      <th>Location</th>
+                      <th>Availability %</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {topSummary.map((machine) => (
+                      <tr key={machine.fleet} className="clickableRow" onClick={() => setSelectedMachine(machine)}>
+                        <td>{machine.fleet}</td>
+                        <td>{machine.machineType}</td>
+                        <td>
+                          <span className={`statusPill ${getStatusClass(machine.status, machine.majorRepair)}`}>
+                            {machine.status}
+                          </span>
+                        </td>
+                        <td>
+                          <span className={`statusPill ${getOnlineClass(machine.onlineStatus)}`}>
+                            {machine.onlineStatus}
+                          </span>
+                        </td>
+                        <td>{machine.location}</td>
+                        <td>{machine.availability}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
           </section>
 
           <aside className="rightColumn">
@@ -983,7 +1016,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                 {historyItems.length === 0 ? (
                   <div className="mutedCard">No history yet.</div>
                 ) : (
-                  historyItems.slice(0, 12).map((item) => (
+                  historyItems.map((item) => (
                     <div key={item.id} className="historyCard">
                       <div className="historyTop">
                         <strong>{item.action}</strong>
@@ -1007,101 +1040,87 @@ export default function DashboardClient({ role, username }: DashboardClientProps
               </div>
             </section>
 
-            <section className="panel" id="bottom-register">
+            <section className="panel">
               <div className="sectionHeading">
-                <h2>Bottom Machine by-Machine Register</h2>
-                <p>Click any machine row to open full machine details.</p>
+                <h2>Notes / Summary Panel</h2>
               </div>
 
-              <div className="controlsRow">
-                <select
-                  value={selectedType}
-                  onChange={(e) => setSelectedType(e.target.value)}
-                  className="selectInput"
-                >
-                  {typeOptions.map((option) => (
-                    <option key={option} value={option}>
-                      {option === "ALL" ? "All Machines" : option}
-                    </option>
-                  ))}
-                </select>
-
-                <select
-                  value={registerFilter}
-                  onChange={(e) => setRegisterFilter(e.target.value as RegisterFilter)}
-                  className="selectInput"
-                >
-                  <option value="ALL">All Statuses</option>
-                  <option value="AVAILABLE">Available Only</option>
-                  <option value="DOWN">Repairs / Down</option>
-                  <option value="MAJOR">Major Repairs</option>
-                </select>
-
-                <div className="searchWrap">
-                  <span>⌕</span>
-                  <input
-                    type="text"
-                    placeholder="Type fleet number or type..."
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                  />
+              <div className="notesStack">
+                <div className="noteCard">
+                  <div className="noteIcon">🗂</div>
+                  <div>
+                    <h3>Main availability</h3>
+                    <p>Major repair units are automatically excluded from top KPI percentages and type graphs.</p>
+                  </div>
                 </div>
 
-                <button className="pillButton solidButton" onClick={() => void handleRefresh()}>
-                  {loadingData ? "Refreshing..." : "Refresh data"}
-                </button>
+                <div className="noteCard">
+                  <div className="noteIcon">📄</div>
+                  <div>
+                    <h3>Shared database + history</h3>
+                    <p>Admin changes save to Supabase, auto-refresh across devices, and are logged in Recent Activity.</p>
+                  </div>
+                </div>
+
+                <div className="noteCard">
+                  <div className="noteIcon">🕒</div>
+                  <div>
+                    <h3>Hours and downtime</h3>
+                    <p>Each machine now shows hours worked, hours down, online status, and downtime reason.</p>
+                  </div>
+                </div>
+
+                <div className="mutedCard">
+                  {isAdmin
+                    ? "You are logged in as admin. Editing controls are enabled."
+                    : "You are logged in as user. This is view-only mode."}
+                </div>
+              </div>
+            </section>
+
+            <section className="panel">
+              <div className="sectionHeading">
+                <h2>Repairs / Down Focus</h2>
+                <p>Units that are not available or are offline.</p>
               </div>
 
               <div className="tableWrap">
                 <table>
                   <thead>
                     <tr>
-                      <th>Fleet Number</th>
-                      <th>Type</th>
+                      <th>Fleet</th>
                       <th>Status</th>
-                      <th>Availability</th>
-                      <th>Hours Worked</th>
-                      <th>Hours Down</th>
                       <th>Online</th>
+                      <th>Hours Down</th>
                       <th>Reason</th>
-                      <th>Department</th>
-                      <th>Location</th>
-                      <th>Updated</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredMachines.map((machine) => (
-                      <tr
-                        key={`${machine.fleet}-${machine.updated}`}
-                        className={selectedFleet === machine.fleet ? "selectedRow" : "clickableRow"}
-                        onClick={() => setSelectedFleet(machine.fleet)}
-                      >
-                        <td>{machine.fleet}</td>
-                        <td>{machine.machineType}</td>
-                        <td>
-                          <span className={`statusPill ${getStatusClass(machine.status, machine.majorRepair)}`}>
-                            {machine.majorRepair ? "Major Repair" : machine.status}
-                          </span>
-                        </td>
-                        <td>{machine.availability}%</td>
-                        <td>{machine.hoursWorked}</td>
-                        <td>{machine.hoursDown}</td>
-                        <td>{machine.onlineStatus}</td>
-                        <td>{machine.downtimeReason || machine.repairReason || "-"}</td>
-                        <td>{machine.department}</td>
-                        <td>{machine.location}</td>
-                        <td>{machine.updated}</td>
+                    {repairsDownList.length === 0 ? (
+                      <tr>
+                        <td colSpan={5}>No repair/down units.</td>
                       </tr>
-                    ))}
+                    ) : (
+                      repairsDownList.map((machine) => (
+                        <tr key={machine.fleet} className="clickableRow" onClick={() => setSelectedMachine(machine)}>
+                          <td>{machine.fleet}</td>
+                          <td>
+                            <span className={`statusPill ${getStatusClass(machine.status, machine.majorRepair)}`}>
+                              {machine.status}
+                            </span>
+                          </td>
+                          <td>
+                            <span className={`statusPill ${getOnlineClass(machine.onlineStatus)}`}>
+                              {machine.onlineStatus}
+                            </span>
+                          </td>
+                          <td>{machine.hoursDown}</td>
+                          <td>{machine.downtimeReason || machine.repairReason || "-"}</td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
-              </div>
-
-              <div className="bottomLine">
-                <span>Turbo Energy - Machine Availability Dashboard</span>
-                <span>
-                  Last updated: {new Date().toLocaleDateString()} {new Date().toLocaleTimeString()}
-                </span>
               </div>
             </section>
 
@@ -1109,7 +1128,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
               <section className="panel">
                 <div className="sectionHeading">
                   <h2>Admin Machine Controls</h2>
-                  <p>Edit hours, online status, downtime reason, department, and repairs.</p>
+                  <p>Move machines to major repair, assign departments, update hours, and set online status.</p>
                 </div>
 
                 <div className="adminList">
@@ -1119,9 +1138,14 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                         <div>
                           <strong>{machine.fleet}</strong> - {machine.machineType}
                         </div>
-                        <span className={`statusPill ${getStatusClass(machine.status, machine.majorRepair)}`}>
-                          {machine.majorRepair ? "Major Repair" : machine.status}
-                        </span>
+                        <div className="statusRowWrap">
+                          <span className={`statusPill ${getStatusClass(machine.status, machine.majorRepair)}`}>
+                            {machine.majorRepair ? "Major Repair" : machine.status}
+                          </span>
+                          <span className={`statusPill ${getOnlineClass(machine.onlineStatus)}`}>
+                            {machine.onlineStatus}
+                          </span>
+                        </div>
                       </div>
 
                       <div className="adminGrid">
@@ -1147,8 +1171,10 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                               if (value === "Major Repair") {
                                 void setMajorRepair(machine.fleet, true);
                               } else {
+                                if (machine.majorRepair) {
+                                  void setMajorRepair(machine.fleet, false);
+                                }
                                 void updateMachineField(machine.fleet, "status", value);
-                                if (machine.majorRepair) void setMajorRepair(machine.fleet, false);
                               }
                             }}
                             className="selectInput"
@@ -1167,8 +1193,23 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                             className="textInput"
                             type="number"
                             value={machine.availability}
-                            onChange={(e) => void updateMachineField(machine.fleet, "availability", Number(e.target.value || 0))}
+                            onChange={(e) =>
+                              void updateMachineField(machine.fleet, "availability", Number(e.target.value || 0))
+                            }
                           />
+                        </div>
+
+                        <div>
+                          <label>Online Status</label>
+                          <select
+                            value={machine.onlineStatus}
+                            onChange={(e) => void updateMachineField(machine.fleet, "onlineStatus", e.target.value)}
+                            className="selectInput"
+                          >
+                            {onlineOptions.map((value) => (
+                              <option key={value} value={value}>{value}</option>
+                            ))}
+                          </select>
                         </div>
 
                         <div>
@@ -1177,7 +1218,9 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                             className="textInput"
                             type="number"
                             value={machine.hoursWorked}
-                            onChange={(e) => void updateMachineField(machine.fleet, "hoursWorked", Number(e.target.value || 0))}
+                            onChange={(e) =>
+                              void updateMachineField(machine.fleet, "hoursWorked", Number(e.target.value || 0))
+                            }
                           />
                         </div>
 
@@ -1187,21 +1230,10 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                             className="textInput"
                             type="number"
                             value={machine.hoursDown}
-                            onChange={(e) => void updateMachineField(machine.fleet, "hoursDown", Number(e.target.value || 0))}
+                            onChange={(e) =>
+                              void updateMachineField(machine.fleet, "hoursDown", Number(e.target.value || 0))
+                            }
                           />
-                        </div>
-
-                        <div>
-                          <label>Online / Offline</label>
-                          <select
-                            value={machine.onlineStatus}
-                            onChange={(e) => void updateMachineField(machine.fleet, "onlineStatus", e.target.value)}
-                            className="selectInput"
-                          >
-                            {onlineStatuses.map((item) => (
-                              <option key={item} value={item}>{item}</option>
-                            ))}
-                          </select>
                         </div>
 
                         <div>
@@ -1210,16 +1242,18 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                             className="textInput"
                             type="text"
                             value={machine.downtimeReason}
+                            placeholder="Reason for downtime"
                             onChange={(e) => void updateMachineField(machine.fleet, "downtimeReason", e.target.value)}
                           />
                         </div>
 
                         <div>
-                          <label>Repair Reason</label>
+                          <label>Reason</label>
                           <input
                             className="textInput"
                             type="text"
                             value={machine.repairReason}
+                            placeholder="Reason for major repair"
                             onChange={(e) => void updateMachineField(machine.fleet, "repairReason", e.target.value)}
                           />
                         </div>
@@ -1230,6 +1264,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                             className="textInput"
                             type="text"
                             value={machine.sparesEta}
+                            placeholder="e.g. 30 Apr 2026"
                             onChange={(e) => void updateMachineField(machine.fleet, "sparesEta", e.target.value)}
                           />
                         </div>
@@ -1247,14 +1282,27 @@ export default function DashboardClient({ role, username }: DashboardClientProps
 
                       <div className="adminActions">
                         {!machine.majorRepair ? (
-                          <button className="miniAction orangeMini" onClick={() => void setMajorRepair(machine.fleet, true)}>
+                          <button
+                            className="miniAction orangeMini"
+                            onClick={() => void setMajorRepair(machine.fleet, true)}
+                          >
                             Move to major repair
                           </button>
                         ) : (
-                          <button className="miniAction" onClick={() => void setMajorRepair(machine.fleet, false)}>
+                          <button
+                            className="miniAction"
+                            onClick={() => void setMajorRepair(machine.fleet, false)}
+                          >
                             Remove from major repair
                           </button>
                         )}
+
+                        <button
+                          className="miniAction"
+                          onClick={() => setSelectedMachine(machine)}
+                        >
+                          Open details
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -1262,29 +1310,234 @@ export default function DashboardClient({ role, username }: DashboardClientProps
               </section>
             )}
 
-            {isAdmin && sheetNames.length > 0 && (
-              <section className="sheetTabsPanel">
-                <div className="sheetTabsHeader">
-                  <h3>Workbook Sheets</h3>
-                  <p>Click a sheet tab to load it into the dashboard.</p>
+            <section className="panel" id="bottom-register">
+              <div className="sectionHeading">
+                <h2>Bottom Machine by-Machine Register</h2>
+                <p>Full register with search, type filter, and status filter.</p>
+              </div>
+
+              <div className="controlsRow">
+                <select
+                  value={selectedType}
+                  onChange={(e) => setSelectedType(e.target.value)}
+                  className="selectInput"
+                >
+                  {typeOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option === "ALL" ? "All Machines" : option}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  value={selectedStatus}
+                  onChange={(e) => setSelectedStatus(e.target.value)}
+                  className="selectInput statusFilter"
+                >
+                  {statusOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+
+                <div className="searchWrap">
+                  <span>⌕</span>
+                  <input
+                    type="text"
+                    placeholder="Type fleet number, machine, reason..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
                 </div>
 
-                <div className="sheetTabs">
-                  {sheetNames.map((name) => (
-                    <button
-                      key={name}
-                      className={`sheetTab ${activeSheet === name ? "activeSheetTab" : ""}`}
-                      onClick={() => void loadSheetByName(name)}
-                    >
-                      {name}
-                    </button>
-                  ))}
-                </div>
-              </section>
-            )}
+                <button className="pillButton solidButton" onClick={() => void handleRefresh()}>
+                  {loadingData ? "Refreshing..." : "Refresh data"}
+                </button>
+              </div>
+
+              <div className="tableWrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Fleet Number</th>
+                      <th>Type</th>
+                      <th>Status</th>
+                      <th>Online</th>
+                      <th>Department</th>
+                      <th>Hours Worked</th>
+                      <th>Hours Down</th>
+                      <th>Location</th>
+                      <th>Updated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredMachines.map((machine) => (
+                      <tr
+                        key={`${machine.fleet}-${machine.updated}-${machine.onlineStatus}`}
+                        className="clickableRow"
+                        onClick={() => setSelectedMachine(machine)}
+                      >
+                        <td>{machine.fleet}</td>
+                        <td>{machine.machineType}</td>
+                        <td>
+                          <span className={`statusPill ${getStatusClass(machine.status, machine.majorRepair)}`}>
+                            {machine.majorRepair ? "Major Repair" : machine.status}
+                          </span>
+                        </td>
+                        <td>
+                          <span className={`statusPill ${getOnlineClass(machine.onlineStatus)}`}>
+                            {machine.onlineStatus}
+                          </span>
+                        </td>
+                        <td>{machine.department}</td>
+                        <td>{machine.hoursWorked}</td>
+                        <td>{machine.hoursDown}</td>
+                        <td>{machine.location}</td>
+                        <td>{machine.updated}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="bottomLine">
+                <span>Turbo Energy - Machine Availability Dashboard</span>
+                <span>
+                  Last updated: {new Date().toLocaleDateString()} {new Date().toLocaleTimeString()}
+                </span>
+              </div>
+            </section>
           </aside>
         </main>
+
+        {isAdmin && sheetNames.length > 0 && (
+          <section className="sheetTabsPanel">
+            <div className="sheetTabsHeader">
+              <h3>Workbook Sheets</h3>
+              <p>Click a sheet tab to load it into the dashboard.</p>
+            </div>
+
+            <div className="sheetTabs">
+              {sheetNames.map((name) => (
+                <button
+                  key={name}
+                  className={`sheetTab ${activeSheet === name ? "activeSheetTab" : ""}`}
+                  onClick={() => void loadSheetByName(name)}
+                >
+                  {name}
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
       </div>
+
+      {selectedMachine && (
+        <div className="modalOverlay" onClick={() => setSelectedMachine(null)}>
+          <div className="modalCard" onClick={(e) => e.stopPropagation()}>
+            <div className="modalHeader">
+              <div>
+                <h2>{selectedMachine.fleet}</h2>
+                <p>{selectedMachine.machineType}</p>
+              </div>
+              <button className="closeButton" onClick={() => setSelectedMachine(null)}>
+                ✕
+              </button>
+            </div>
+
+            <div className="modalGrid">
+              <DetailItem label="Fleet" value={selectedMachine.fleet} />
+              <DetailItem label="Type" value={selectedMachine.type} />
+              <DetailItem label="Machine Type" value={selectedMachine.machineType} />
+              <DetailItem label="Department" value={selectedMachine.department} />
+              <DetailItem label="Location" value={selectedMachine.location} />
+              <DetailItem label="Status" value={selectedMachine.majorRepair ? "Major Repair" : selectedMachine.status} />
+              <DetailItem label="Online Status" value={selectedMachine.onlineStatus} />
+              <DetailItem label="Availability" value={`${selectedMachine.availability}%`} />
+              <DetailItem label="Hours Worked" value={String(selectedMachine.hoursWorked)} />
+              <DetailItem label="Hours Down" value={String(selectedMachine.hoursDown)} />
+              <DetailItem label="Downtime Reason" value={selectedMachine.downtimeReason || "-"} />
+              <DetailItem label="Repair Reason" value={selectedMachine.repairReason || "-"} />
+              <DetailItem label="Spares ETA" value={selectedMachine.sparesEta || "-"} />
+              <DetailItem label="Updated" value={selectedMachine.updated} />
+            </div>
+
+            {isAdmin && (
+              <div className="modalAdmin">
+                <h3>Quick edit</h3>
+                <div className="modalAdminGrid">
+                  <div>
+                    <label>Status</label>
+                    <select
+                      className="selectInput"
+                      value={selectedMachine.majorRepair ? "Major Repair" : selectedMachine.status}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        if (value === "Major Repair") {
+                          void setMajorRepair(selectedMachine.fleet, true);
+                        } else {
+                          if (selectedMachine.majorRepair) void setMajorRepair(selectedMachine.fleet, false);
+                          void updateMachineField(selectedMachine.fleet, "status", value);
+                        }
+                      }}
+                    >
+                      <option value="Available">Available</option>
+                      <option value="Repair">Repair</option>
+                      <option value="Maintenance">Maintenance</option>
+                      <option value="Down">Down</option>
+                      <option value="Major Repair">Major Repair</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label>Online</label>
+                    <select
+                      className="selectInput"
+                      value={selectedMachine.onlineStatus}
+                      onChange={(e) => void updateMachineField(selectedMachine.fleet, "onlineStatus", e.target.value)}
+                    >
+                      {onlineOptions.map((value) => (
+                        <option key={value} value={value}>{value}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label>Hours Worked</label>
+                    <input
+                      className="textInput"
+                      type="number"
+                      value={selectedMachine.hoursWorked}
+                      onChange={(e) => void updateMachineField(selectedMachine.fleet, "hoursWorked", Number(e.target.value || 0))}
+                    />
+                  </div>
+
+                  <div>
+                    <label>Hours Down</label>
+                    <input
+                      className="textInput"
+                      type="number"
+                      value={selectedMachine.hoursDown}
+                      onChange={(e) => void updateMachineField(selectedMachine.fleet, "hoursDown", Number(e.target.value || 0))}
+                    />
+                  </div>
+
+                  <div className="span2">
+                    <label>Downtime Reason</label>
+                    <input
+                      className="textInput"
+                      type="text"
+                      value={selectedMachine.downtimeReason}
+                      onChange={(e) => void updateMachineField(selectedMachine.fleet, "downtimeReason", e.target.value)}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       <style jsx>{`
         .page {
@@ -1298,14 +1551,14 @@ export default function DashboardClient({ role, username }: DashboardClientProps
         }
 
         .shell {
-          width: min(1460px, calc(100% - 24px));
+          width: min(1380px, calc(100% - 24px));
           margin: 0 auto;
           padding: 0 0 24px;
           overflow-x: hidden;
         }
 
         .topMetaRow {
-          width: min(1460px, calc(100% - 24px));
+          width: min(1380px, calc(100% - 24px));
           margin: 14px auto 0;
           display: flex;
           justify-content: space-between;
@@ -1409,7 +1662,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
 
         .dashboardGrid {
           display: grid;
-          grid-template-columns: minmax(0, 1.45fr) minmax(360px, 1fr);
+          grid-template-columns: minmax(0, 1.5fr) minmax(320px, 1fr);
           gap: 16px;
           margin-top: 14px;
           min-width: 0;
@@ -1423,16 +1676,16 @@ export default function DashboardClient({ role, username }: DashboardClientProps
           min-width: 0;
         }
 
-        .kpiGrid {
-          display: grid;
-          grid-template-columns: repeat(4, minmax(0, 1fr));
-          gap: 12px;
-        }
-
         .panel,
         .tableWrap,
         .chartPanel {
           min-width: 0;
+        }
+
+        .kpiGrid {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 12px;
         }
 
         .kpiCard {
@@ -1446,10 +1699,6 @@ export default function DashboardClient({ role, username }: DashboardClientProps
           align-items: center;
           box-shadow: 0 18px 40px rgba(0,0,0,0.22);
           min-width: 0;
-        }
-
-        .clickableCard {
-          cursor: pointer;
         }
 
         .kpiIcon {
@@ -1693,51 +1942,18 @@ export default function DashboardClient({ role, username }: DashboardClientProps
           margin-bottom: 12px;
         }
 
-        .departmentGrid,
-        .detailGrid {
+        .departmentGrid {
           display: grid;
           grid-template-columns: repeat(2, minmax(0, 1fr));
           gap: 12px;
         }
 
-        .departmentCard,
-        .detailCard,
-        .detailMini,
-        .detailWide {
+        .departmentCard {
           border: 1px solid rgba(255,255,255,0.1);
           border-radius: 16px;
           padding: 14px;
           background: rgba(255,255,255,0.04);
           min-width: 0;
-        }
-
-        .detailCard h3,
-        .departmentHead h3 {
-          margin: 0 0 4px;
-          font-size: 16px;
-        }
-
-        .detailCard p {
-          margin: 0 0 10px;
-          color: #c8d4ea;
-        }
-
-        .detailMini label,
-        .detailWide label {
-          display: block;
-          margin-bottom: 8px;
-          font-size: 12px;
-          color: #cfdbf4;
-          font-weight: 700;
-        }
-
-        .detailMini strong,
-        .detailWide strong {
-          font-size: 16px;
-        }
-
-        .detailWide {
-          grid-column: 1 / -1;
         }
 
         .departmentHead {
@@ -1746,6 +1962,11 @@ export default function DashboardClient({ role, username }: DashboardClientProps
           gap: 12px;
           align-items: center;
           margin-bottom: 10px;
+        }
+
+        .departmentHead h3 {
+          margin: 0;
+          font-size: 15px;
         }
 
         .departmentHead span {
@@ -1806,7 +2027,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
         table {
           width: 100%;
           border-collapse: collapse;
-          min-width: 1100px;
+          min-width: 860px;
         }
 
         th {
@@ -1828,9 +2049,8 @@ export default function DashboardClient({ role, username }: DashboardClientProps
           cursor: pointer;
         }
 
-        .selectedRow {
-          background: rgba(255,177,75,0.16);
-          cursor: pointer;
+        .clickableRow:hover {
+          background: rgba(255,255,255,0.06);
         }
 
         .statusPill {
@@ -1864,6 +2084,16 @@ export default function DashboardClient({ role, username }: DashboardClientProps
           color: #ffcf67;
         }
 
+        .statusOnline {
+          background: rgba(65,184,108,0.18);
+          color: #52dd84;
+        }
+
+        .statusOffline {
+          background: rgba(201,72,96,0.18);
+          color: #ff7b93;
+        }
+
         .notesStack,
         .historyStack {
           display: flex;
@@ -1871,9 +2101,33 @@ export default function DashboardClient({ role, username }: DashboardClientProps
           gap: 12px;
         }
 
-        .compactHistory {
-          max-height: 320px;
-          overflow: auto;
+        .noteCard {
+          display: grid;
+          grid-template-columns: 32px 1fr;
+          gap: 12px;
+          align-items: start;
+          background: rgba(255,255,255,0.97);
+          color: #17325f;
+          border-radius: 16px;
+          padding: 14px 16px;
+        }
+
+        .noteIcon {
+          font-size: 22px;
+          line-height: 1;
+          margin-top: 2px;
+        }
+
+        .noteCard h3 {
+          margin: 0 0 4px;
+          font-size: 15px;
+          font-weight: 900;
+        }
+
+        .noteCard p {
+          margin: 0;
+          font-size: 14px;
+          color: #4f648b;
         }
 
         .mutedCard {
@@ -1947,13 +2201,20 @@ export default function DashboardClient({ role, username }: DashboardClientProps
           margin-bottom: 12px;
         }
 
+        .statusRowWrap {
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+
         .adminGrid {
           display: grid;
           grid-template-columns: repeat(2, minmax(0, 1fr));
           gap: 10px;
         }
 
-        .adminGrid label {
+        .adminGrid label,
+        .modalAdmin label {
           display: block;
           font-size: 12px;
           color: #cfdbf4;
@@ -1979,6 +2240,8 @@ export default function DashboardClient({ role, username }: DashboardClientProps
           margin-top: 12px;
           display: flex;
           justify-content: flex-end;
+          gap: 10px;
+          flex-wrap: wrap;
         }
 
         .miniAction {
@@ -2002,6 +2265,10 @@ export default function DashboardClient({ role, username }: DashboardClientProps
           gap: 10px;
           flex-wrap: wrap;
           margin-bottom: 12px;
+        }
+
+        .statusFilter {
+          max-width: 180px;
         }
 
         .searchWrap {
@@ -2042,6 +2309,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
         }
 
         .sheetTabsPanel {
+          margin-top: 16px;
           background: linear-gradient(180deg, rgba(17, 42, 87, 0.92), rgba(10, 29, 63, 0.94));
           border: 1px solid rgba(255,255,255,0.1);
           border-radius: 18px;
@@ -2084,6 +2352,105 @@ export default function DashboardClient({ role, username }: DashboardClientProps
           border: none;
         }
 
+        .modalOverlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0,0,0,0.58);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 20px;
+          z-index: 999;
+        }
+
+        .modalCard {
+          width: min(900px, 100%);
+          max-height: 90vh;
+          overflow: auto;
+          background: linear-gradient(180deg, rgba(17, 42, 87, 0.98), rgba(10, 29, 63, 0.98));
+          border: 1px solid rgba(255,255,255,0.12);
+          border-radius: 22px;
+          padding: 20px;
+          box-shadow: 0 18px 40px rgba(0,0,0,0.35);
+        }
+
+        .modalHeader {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          align-items: flex-start;
+          margin-bottom: 16px;
+        }
+
+        .modalHeader h2 {
+          margin: 0;
+          font-size: 24px;
+          font-weight: 900;
+        }
+
+        .modalHeader p {
+          margin: 6px 0 0;
+          color: #c8d4ea;
+        }
+
+        .closeButton {
+          border: none;
+          background: rgba(255,255,255,0.12);
+          color: white;
+          border-radius: 10px;
+          width: 40px;
+          height: 40px;
+          cursor: pointer;
+          font-size: 18px;
+          font-weight: 900;
+        }
+
+        .modalGrid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 12px;
+          margin-bottom: 18px;
+        }
+
+        .detailCard {
+          border: 1px solid rgba(255,255,255,0.1);
+          border-radius: 14px;
+          padding: 14px;
+          background: rgba(255,255,255,0.04);
+        }
+
+        .detailCard label {
+          display: block;
+          margin-bottom: 6px;
+          font-size: 12px;
+          color: #cfdbf4;
+          font-weight: 700;
+        }
+
+        .detailCard div {
+          font-size: 15px;
+          font-weight: 800;
+        }
+
+        .modalAdmin {
+          border-top: 1px solid rgba(255,255,255,0.1);
+          padding-top: 16px;
+        }
+
+        .modalAdmin h3 {
+          margin: 0 0 12px;
+        }
+
+        .modalAdminGrid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 10px;
+        }
+
+        .span2 {
+          grid-column: span 2;
+        }
+
         @media (max-width: 1280px) {
           .topbar {
             grid-template-columns: 1fr;
@@ -2106,9 +2473,14 @@ export default function DashboardClient({ role, username }: DashboardClientProps
         @media (max-width: 860px) {
           .kpiGrid,
           .departmentGrid,
-          .detailGrid,
-          .adminGrid {
+          .adminGrid,
+          .modalGrid,
+          .modalAdminGrid {
             grid-template-columns: 1fr;
+          }
+
+          .span2 {
+            grid-column: span 1;
           }
 
           .logoText {
@@ -2144,7 +2516,8 @@ export default function DashboardClient({ role, username }: DashboardClientProps
           .bottomLine,
           .adminTop,
           .topMetaRow,
-          .historyTop {
+          .historyTop,
+          .modalHeader {
             flex-direction: column;
             align-items: flex-start;
           }
@@ -2158,17 +2531,15 @@ function KpiCard({
   icon,
   title,
   value,
-  note,
-  onClick
+  note
 }: {
   icon: string;
   title: string;
   value: number;
   note: string;
-  onClick?: () => void;
 }) {
   return (
-    <div className={`kpiCard ${onClick ? "clickableCard" : ""}`} onClick={onClick}>
+    <div className="kpiCard">
       <div className="kpiIcon">{icon}</div>
       <div className="kpiText">
         <h4>{title}</h4>
@@ -2179,12 +2550,25 @@ function KpiCard({
   );
 }
 
+function DetailItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="detailCard">
+      <label>{label}</label>
+      <div>{value}</div>
+    </div>
+  );
+}
+
 function getStatusClass(status: string, majorRepair?: boolean) {
   if (majorRepair) return "statusMajor";
   const value = status.toLowerCase();
   if (value.includes("avail")) return "statusAvailable";
   if (value.includes("repair") || value.includes("maint")) return "statusRepair";
   return "statusDown";
+}
+
+function getOnlineClass(value: string) {
+  return String(value || "").toLowerCase() === "online" ? "statusOnline" : "statusOffline";
 }
 
 function normalizeTypeLabel(type: string) {
@@ -2208,34 +2592,29 @@ function isRegistrationStyleFleet(fleet: string) {
 }
 
 function normalizeLoadedMachine(machine: Partial<Machine>): Machine {
-  const fleet = String(machine.fleet || "UNIT").trim();
+  const fleet = String(machine.fleet || "").trim();
   const isRegistration = isRegistrationStyleFleet(fleet);
   const normalizedType = isRegistration
     ? "LDV"
-    : normalizeTypeLabel(String(machine.type || inferTypeFromFleet(fleet)));
-
-  const status = String(machine.status || "Available");
-  const availability = Number(machine.availability || 0);
-  const majorRepair = Boolean(machine.majorRepair);
+    : normalizeTypeLabel(machine.type || inferTypeFromFleet(fleet));
 
   return {
+    id: machine.id,
     fleet,
     type: normalizedType,
     machineType:
-      normalizedType === "LDV"
-        ? "Light Vehicle"
-        : String(machine.machineType || fleet),
-    status,
+      normalizedType === "LDV" ? "Light Vehicle" : String(machine.machineType || fleet),
+    status: String(machine.status || "Available"),
     location: String(machine.location || "Hwange"),
     department: String(machine.department || inferDepartmentFromType(normalizedType)),
-    availability,
+    availability: Number(machine.availability || 0),
     updated: String(machine.updated || new Date().toLocaleDateString()),
-    majorRepair,
+    majorRepair: Boolean(machine.majorRepair),
     repairReason: String(machine.repairReason || ""),
     sparesEta: String(machine.sparesEta || ""),
     hoursWorked: Number(machine.hoursWorked || 0),
     hoursDown: Number(machine.hoursDown || 0),
-    onlineStatus: String(machine.onlineStatus || (status.toLowerCase().includes("avail") ? "Online" : "Offline")),
+    onlineStatus: String(machine.onlineStatus || "Online"),
     downtimeReason: String(machine.downtimeReason || ""),
   };
 }
@@ -2261,7 +2640,10 @@ function parseCSV(text: string): Machine[] {
     .filter((row) => row.fleet && row.machineType);
 }
 
-function parseSelectedSheet(sheetName: string, rows: Record<string, unknown>[]): Machine[] {
+function parseSelectedSheet(
+  sheetName: string,
+  rows: Record<string, unknown>[]
+): Machine[] {
   const lower = sheetName.toLowerCase();
 
   if (lower.includes("summary")) {
@@ -2317,9 +2699,9 @@ function mapSummaryRows(rows: Record<string, unknown>[]): Machine[] {
         repairReason: "",
         sparesEta: "",
         hoursWorked: Number(n["hours worked"] || n["hoursworked"] || 0),
-        hoursDown: Number(n["hours down"] || n["hoursdown"] || downtime || 0),
-        onlineStatus: status.toLowerCase().includes("avail") ? "Online" : "Offline",
-        downtimeReason: String(n["downtime reason"] || n["reason"] || ""),
+        hoursDown: Number(n["hours down"] || n["hoursdown"] || n["downtime"] || 0),
+        onlineStatus: String(n["online status"] || n["onlinestatus"] || "Online"),
+        downtimeReason: String(n["downtime reason"] || n["downtimereason"] || ""),
       });
     })
     .filter((row): row is Machine => Boolean(row));
@@ -2344,7 +2726,7 @@ function normalizeMachine(row: Record<string, string>): Machine {
   return normalizeLoadedMachine({
     fleet,
     type,
-    machineType: row["machine type"] || row.model || (type === "LDV" ? "Light Vehicle" : fleet),
+    machineType: row["machine type"] || row.machinetype || row.model || (type === "LDV" ? "Light Vehicle" : fleet),
     status: majorRepair ? "Major Repair" : row.status || "Available",
     location: row.location || "Hwange",
     department: row.department || inferDepartmentFromType(type),
@@ -2355,4 +2737,61 @@ function normalizeMachine(row: Record<string, string>): Machine {
     sparesEta: row.spareseta || row["spares eta"] || "",
     hoursWorked: Number(row.hoursworked || row["hours worked"] || 0),
     hoursDown: Number(row.hoursdown || row["hours down"] || 0),
-    onlineStatus:
+    onlineStatus: row.onlinestatus || row["online status"] || "Online",
+    downtimeReason: row.downtimereason || row["downtime reason"] || "",
+  });
+}
+
+function inferTypeFromFleet(fleet: string) {
+  const cleaned = fleet.toUpperCase().trim();
+
+  if (isRegistrationStyleFleet(cleaned)) {
+    return "LDV";
+  }
+
+  const knownHeavyPrefixes = [
+    "FEL",
+    "TEX",
+    "TRT",
+    "HT",
+    "TRL",
+    "TDC",
+    "GEN",
+    "WB",
+    "LV",
+    "LDV",
+    "WT",
+    "EX",
+    "DT",
+    "TLB",
+    "CARGO",
+  ];
+
+  for (const prefix of knownHeavyPrefixes) {
+    if (cleaned.startsWith(prefix)) {
+      return prefix === "LV" ? "LDV" : prefix;
+    }
+  }
+
+  const lettersOnly = cleaned.match(/^[A-Z]+/);
+  if (!lettersOnly) return "GEN";
+
+  return lettersOnly[0];
+}
+
+function inferDepartmentFromType(type: string) {
+  const t = normalizeTypeLabel(type);
+
+  if (t === "LDV") return "Logistics";
+  if (["FEL", "HT", "TEX", "WB", "EX", "DT"].includes(t)) return "Mining";
+  if (["TRT", "TRL", "TDC", "TLB", "CARGO"].includes(t)) return "Logistics";
+
+  return "Plant";
+}
+
+function formatHistoryDate(value: string) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
+}
