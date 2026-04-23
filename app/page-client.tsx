@@ -57,49 +57,36 @@ export default function DashboardClient({ role, username }: DashboardClientProps
   const [loadingData, setLoadingData] = useState(true);
 
   useEffect(() => {
-    async function loadMachinesFromSupabase() {
-      setLoadingData(true);
-
-      const { data, error } = await supabase
-        .from("machines")
-        .select(`
-          fleet,
-          type,
-          machineType,
-          status,
-          location,
-          department,
-          availability,
-          updated,
-          majorRepair,
-          repairReason,
-          sparesEta
-        `);
-
-      if (error) {
-        console.error("Supabase load error:", error);
-        const normalizedSample = sampleData.map(normalizeLoadedMachine);
-        setMachines(normalizedSample);
-        setLoadingData(false);
-        return;
-      }
-
-      if (!data || data.length === 0) {
-        const normalizedSample = sampleData.map(normalizeLoadedMachine);
-        setMachines(normalizedSample);
-        setLoadingData(false);
-        return;
-      }
-
-      const normalized = (data as Machine[]).map(normalizeLoadedMachine);
-      setMachines(normalized);
-      setLoadingData(false);
-    }
-
-    loadMachinesFromSupabase();
+    void loadMachinesFromSupabase();
   }, []);
 
-  const saveMachines = async (data: Machine[]) => {
+  async function loadMachinesFromSupabase() {
+    setLoadingData(true);
+
+    const { data, error } = await supabase
+      .from("machines")
+      .select("fleet,type,machineType,status,location,department,availability,updated,majorRepair,repairReason,sparesEta");
+
+    if (error) {
+      console.error("Supabase load error:", error);
+      const normalizedSample = sampleData.map(normalizeLoadedMachine);
+      setMachines(normalizedSample);
+      setLoadingData(false);
+      return;
+    }
+
+    if (!data || data.length === 0) {
+      const normalizedSample = sampleData.map(normalizeLoadedMachine);
+      setMachines(normalizedSample);
+      setLoadingData(false);
+      return;
+    }
+
+    setMachines((data as Machine[]).map(normalizeLoadedMachine));
+    setLoadingData(false);
+  }
+
+  async function saveMachines(data: Machine[]) {
     const normalized = data.map(normalizeLoadedMachine);
     setMachines(normalized);
 
@@ -134,7 +121,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
       console.error("Supabase insert error:", insertError);
       alert("Could not save shared machine data.");
     }
-  };
+  }
 
   const mainMachines = useMemo(() => machines.filter((m) => !m.majorRepair), [machines]);
 
@@ -310,36 +297,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
   };
 
   const handleRefresh = async () => {
-    setLoadingData(true);
-
-    const { data, error } = await supabase
-      .from("machines")
-      .select(`
-        fleet,
-        type,
-        machineType,
-        status,
-        location,
-        department,
-        availability,
-        updated,
-        majorRepair,
-        repairReason,
-        sparesEta
-      `);
-
-    if (error) {
-      console.error("Supabase refresh error:", error);
-      alert("Could not refresh shared data.");
-      setLoadingData(false);
-      return;
-    }
-
-    if (data && data.length > 0) {
-      setMachines((data as Machine[]).map(normalizeLoadedMachine));
-    }
-
-    setLoadingData(false);
+    await loadMachinesFromSupabase();
   };
 
   const handleSpreadsheetUpload = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -543,7 +501,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                 </div>
 
                 <div className="infoBox">
-                  Shared mode is now active. When admin uploads or edits, all devices can refresh and see the same data.
+                  Shared mode is now active. Admin changes save to Supabase and all devices can use Refresh Data to see the latest shared dashboard.
                 </div>
               </section>
             )}
@@ -654,7 +612,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                             <td>
                               <button
                                 className="miniAction"
-                                onClick={() => setMajorRepair(machine.fleet, false)}
+                                onClick={() => void setMajorRepair(machine.fleet, false)}
                               >
                                 Return to main list
                               </button>
@@ -724,7 +682,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                   <div className="noteIcon">📄</div>
                   <div>
                     <h3>Shared database live</h3>
-                    <p>Admin changes are now stored centrally. Users can press refresh to see the newest shared data.</p>
+                    <p>Admin changes save to Supabase. Users can press Refresh Data to pull the latest shared information.</p>
                   </div>
                 </div>
 
@@ -760,7 +718,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                           <label>Department</label>
                           <select
                             value={machine.department}
-                            onChange={(e) => updateMachineField(machine.fleet, "department", e.target.value)}
+                            onChange={(e) => void updateMachineField(machine.fleet, "department", e.target.value)}
                             className="selectInput"
                           >
                             {departments.map((dep) => (
@@ -1806,6 +1764,15 @@ function normalizeTypeLabel(type: string) {
   return cleaned;
 }
 
+function isSummaryLikeSheet(rows: Record<string, unknown>[]) {
+  if (!rows.length) return false;
+  const first = normalizeKeys(rows[0]);
+  return (
+    ("machine" in first || "fleet" in first || "fleet number" in first) &&
+    ("availability" in first || "availability %" in first)
+  );
+}
+
 function isRegistrationStyleFleet(fleet: string) {
   const cleaned = String(fleet || "").toUpperCase().trim();
   return /^[A-Z]{3}\s?\d{3,4}$/.test(cleaned);
@@ -1845,15 +1812,6 @@ function parseCSV(text: string): Machine[] {
       return normalizeMachine(row);
     })
     .filter((row) => row.fleet && row.machineType);
-}
-
-function isSummaryLikeSheet(rows: Record<string, unknown>[]) {
-  if (!rows.length) return false;
-  const first = normalizeKeys(rows[0]);
-  return (
-    ("machine" in first || "fleet" in first || "fleet number" in first) &&
-    ("availability" in first || "availability %" in first)
-  );
 }
 
 function parseSelectedSheet(
