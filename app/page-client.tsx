@@ -19,6 +19,18 @@ type Machine = {
   sparesEta: string;
 };
 
+type HistoryItem = {
+  id: number;
+  created_at: string;
+  actor: string;
+  action: string;
+  fleet: string;
+  field: string;
+  old_value: string;
+  new_value: string;
+  notes: string;
+};
+
 type WorkbookSheetData = {
   name: string;
   rows: Record<string, unknown>[];
@@ -48,6 +60,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
   const isAdmin = role === "admin";
 
   const [machines, setMachines] = useState<Machine[]>([]);
+  const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
   const [selectedType, setSelectedType] = useState("ALL");
   const [search, setSearch] = useState("");
   const [fileName, setFileName] = useState("No file chosen");
@@ -57,19 +70,18 @@ export default function DashboardClient({ role, username }: DashboardClientProps
   const [loadingData, setLoadingData] = useState(true);
 
   useEffect(() => {
-    void loadMachinesFromSupabase();
+    void Promise.all([loadMachinesFromSupabase(), loadHistoryFromSupabase()]);
 
     const interval = setInterval(() => {
       void loadMachinesFromSupabase(false);
+      void loadHistoryFromSupabase();
     }, 15000);
 
     return () => clearInterval(interval);
   }, []);
 
   async function loadMachinesFromSupabase(showLoader = true) {
-    if (showLoader) {
-      setLoadingData(true);
-    }
+    if (showLoader) setLoadingData(true);
 
     const { data, error } = await supabase
       .from("machines")
@@ -77,21 +89,60 @@ export default function DashboardClient({ role, username }: DashboardClientProps
 
     if (error) {
       console.error("Supabase load error:", error);
-      const normalizedSample = sampleData.map(normalizeLoadedMachine);
-      setMachines(normalizedSample);
+      setMachines(sampleData.map(normalizeLoadedMachine));
       setLoadingData(false);
       return;
     }
 
     if (!data || data.length === 0) {
-      const normalizedSample = sampleData.map(normalizeLoadedMachine);
-      setMachines(normalizedSample);
+      setMachines(sampleData.map(normalizeLoadedMachine));
       setLoadingData(false);
       return;
     }
 
     setMachines((data as Machine[]).map(normalizeLoadedMachine));
     setLoadingData(false);
+  }
+
+  async function loadHistoryFromSupabase() {
+    const { data, error } = await supabase
+      .from("machine_history")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(20);
+
+    if (error) {
+      console.error("History load error:", error);
+      return;
+    }
+
+    setHistoryItems((data as HistoryItem[]) || []);
+  }
+
+  async function addHistoryEntry(entry: {
+    action: string;
+    fleet?: string;
+    field?: string;
+    oldValue?: string;
+    newValue?: string;
+    notes?: string;
+  }) {
+    const { error } = await supabase.from("machine_history").insert({
+      actor: username,
+      action: entry.action,
+      fleet: entry.fleet || "",
+      field: entry.field || "",
+      old_value: entry.oldValue || "",
+      new_value: entry.newValue || "",
+      notes: entry.notes || "",
+    });
+
+    if (error) {
+      console.error("History insert error:", error);
+      return;
+    }
+
+    await loadHistoryFromSupabase();
   }
 
   async function saveMachines(data: Machine[]) {
@@ -120,7 +171,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
     if (deleteError) {
       console.error("Supabase delete error:", deleteError);
       alert("Could not clear old shared machine data.");
-      return;
+      return false;
     }
 
     const { error: insertError } = await supabase.from("machines").insert(payload);
@@ -128,7 +179,10 @@ export default function DashboardClient({ role, username }: DashboardClientProps
     if (insertError) {
       console.error("Supabase insert error:", insertError);
       alert("Could not save shared machine data.");
+      return false;
     }
+
+    return true;
   }
 
   const mainMachines = useMemo(() => machines.filter((m) => !m.majorRepair), [machines]);
@@ -215,6 +269,12 @@ export default function DashboardClient({ role, username }: DashboardClientProps
       return;
     }
 
+    const currentMachine = machines.find((m) => m.fleet === fleet);
+    if (!currentMachine) return;
+
+    const oldValue = String(currentMachine[field] ?? "");
+    const newValue = String(value ?? "");
+
     const updated = machines.map((machine) =>
       machine.fleet === fleet
         ? normalizeLoadedMachine({
@@ -225,7 +285,17 @@ export default function DashboardClient({ role, username }: DashboardClientProps
         : machine
     );
 
-    await saveMachines(updated);
+    const saved = await saveMachines(updated);
+    if (saved) {
+      await addHistoryEntry({
+        action: "Updated machine field",
+        fleet,
+        field: String(field),
+        oldValue,
+        newValue,
+        notes: `${field} changed on ${fleet}`
+      });
+    }
   };
 
   const setMajorRepair = async (fleet: string, enabled: boolean) => {
@@ -233,6 +303,9 @@ export default function DashboardClient({ role, username }: DashboardClientProps
       alert("Access denied: admin only");
       return;
     }
+
+    const currentMachine = machines.find((m) => m.fleet === fleet);
+    if (!currentMachine) return;
 
     const updated = machines.map((machine) => {
       if (machine.fleet !== fleet) return machine;
@@ -247,7 +320,17 @@ export default function DashboardClient({ role, username }: DashboardClientProps
       });
     });
 
-    await saveMachines(updated);
+    const saved = await saveMachines(updated);
+    if (saved) {
+      await addHistoryEntry({
+        action: enabled ? "Moved to major repair" : "Removed from major repair",
+        fleet,
+        field: "majorRepair",
+        oldValue: String(currentMachine.majorRepair),
+        newValue: String(enabled),
+        notes: enabled ? "Machine moved out of active fleet" : "Machine returned to active fleet"
+      });
+    }
   };
 
   const handleExport = () => {
@@ -305,7 +388,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
   };
 
   const handleRefresh = async () => {
-    await loadMachinesFromSupabase();
+    await Promise.all([loadMachinesFromSupabase(), loadHistoryFromSupabase()]);
   };
 
   const handleSpreadsheetUpload = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -327,7 +410,13 @@ export default function DashboardClient({ role, username }: DashboardClientProps
         const parsed = parseCSV(text);
 
         if (parsed.length > 0) {
-          await saveMachines(parsed);
+          const saved = await saveMachines(parsed);
+          if (saved) {
+            await addHistoryEntry({
+              action: "Uploaded CSV",
+              notes: `${file.name} uploaded with ${parsed.length} rows`
+            });
+          }
           setSheetNames(["CSV"]);
           setWorkbookSheets([{ name: "CSV", rows: [] }]);
           setActiveSheet("CSV");
@@ -370,7 +459,13 @@ export default function DashboardClient({ role, username }: DashboardClientProps
         const parsed = parseSelectedSheet(preferredSheet.name, preferredSheet.rows);
 
         if (parsed.length > 0) {
-          await saveMachines(parsed);
+          const saved = await saveMachines(parsed);
+          if (saved) {
+            await addHistoryEntry({
+              action: "Uploaded workbook",
+              notes: `${file.name} loaded from sheet ${preferredSheet.name} with ${parsed.length} rows`
+            });
+          }
           setActiveSheet(preferredSheet.name);
         } else {
           alert("Spreadsheet loaded, but the selected sheet did not contain machine summary rows.");
@@ -398,7 +493,13 @@ export default function DashboardClient({ role, username }: DashboardClientProps
     const parsed = parseSelectedSheet(selected.name, selected.rows);
 
     if (parsed.length > 0) {
-      await saveMachines(parsed);
+      const saved = await saveMachines(parsed);
+      if (saved) {
+        await addHistoryEntry({
+          action: "Loaded workbook sheet",
+          notes: `Sheet ${sheetName} loaded with ${parsed.length} rows`
+        });
+      }
       setActiveSheet(sheetName);
     } else {
       alert(`Sheet "${sheetName}" does not contain machine summary rows for the dashboard.`);
@@ -466,7 +567,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
 
           <div className="titleWrap">
             <h1>Turbo-Energy Machine Availability</h1>
-            <p>Live fleet dashboard with admin movements, departments, and major repairs</p>
+            <p>Live fleet dashboard with admin movements, departments, repairs, and history</p>
           </div>
 
           <div className="topActions">
@@ -529,7 +630,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                 </div>
 
                 <div className="infoBox">
-                  Shared mode is now active. Admin changes save to Supabase and all devices auto-refresh every 15 seconds.
+                  Shared mode and history are now active. Admin changes save to Supabase and are logged in Recent Activity.
                 </div>
               </section>
             )}
@@ -694,6 +795,40 @@ export default function DashboardClient({ role, username }: DashboardClientProps
           <aside className="rightColumn">
             <section className="panel">
               <div className="sectionHeading">
+                <h2>Recent Activity</h2>
+                <p>Latest shared changes across the dashboard.</p>
+              </div>
+
+              <div className="historyStack">
+                {historyItems.length === 0 ? (
+                  <div className="mutedCard">No history yet.</div>
+                ) : (
+                  historyItems.map((item) => (
+                    <div key={item.id} className="historyCard">
+                      <div className="historyTop">
+                        <strong>{item.action}</strong>
+                        <span>{formatHistoryDate(item.created_at)}</span>
+                      </div>
+                      <div className="historyMeta">
+                        <span><strong>User:</strong> {item.actor || "-"}</span>
+                        {item.fleet ? <span><strong>Fleet:</strong> {item.fleet}</span> : null}
+                        {item.field ? <span><strong>Field:</strong> {item.field}</span> : null}
+                      </div>
+                      {(item.old_value || item.new_value) && (
+                        <div className="historyChange">
+                          <span><strong>Old:</strong> {item.old_value || "-"}</span>
+                          <span><strong>New:</strong> {item.new_value || "-"}</span>
+                        </div>
+                      )}
+                      {item.notes ? <div className="historyNotes">{item.notes}</div> : null}
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
+
+            <section className="panel">
+              <div className="sectionHeading">
                 <h2>Notes / Summary Panel</h2>
               </div>
 
@@ -709,8 +844,8 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                 <div className="noteCard">
                   <div className="noteIcon">📄</div>
                   <div>
-                    <h3>Shared database live</h3>
-                    <p>Admin changes save to Supabase. Users auto-refresh every 15 seconds and can also press Refresh Data.</p>
+                    <h3>Shared database + history</h3>
+                    <p>Admin changes save to Supabase, auto-refresh across devices, and are logged in Recent Activity.</p>
                   </div>
                 </div>
 
@@ -1480,7 +1615,8 @@ export default function DashboardClient({ role, username }: DashboardClientProps
           color: #ffcf67;
         }
 
-        .notesStack {
+        .notesStack,
+        .historyStack {
           display: flex;
           flex-direction: column;
           gap: 12px;
@@ -1523,6 +1659,43 @@ export default function DashboardClient({ role, username }: DashboardClientProps
           color: #e7eeff;
           font-size: 14px;
           line-height: 1.45;
+        }
+
+        .historyCard {
+          border: 1px solid rgba(255,255,255,0.1);
+          border-radius: 16px;
+          padding: 14px 16px;
+          background: rgba(255,255,255,0.04);
+        }
+
+        .historyTop {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          align-items: center;
+          margin-bottom: 8px;
+          font-size: 14px;
+        }
+
+        .historyTop span {
+          color: #cfdbf4;
+          font-size: 12px;
+          font-weight: 700;
+        }
+
+        .historyMeta,
+        .historyChange {
+          display: flex;
+          gap: 10px;
+          flex-wrap: wrap;
+          font-size: 12px;
+          color: #dbe5f7;
+          margin-bottom: 6px;
+        }
+
+        .historyNotes {
+          font-size: 13px;
+          color: #ffffff;
         }
 
         .adminList {
@@ -1745,7 +1918,8 @@ export default function DashboardClient({ role, username }: DashboardClientProps
 
           .bottomLine,
           .adminTop,
-          .topMetaRow {
+          .topMetaRow,
+          .historyTop {
             flex-direction: column;
             align-items: flex-start;
           }
@@ -1981,4 +2155,11 @@ function inferDepartmentFromType(type: string) {
   if (["TRT", "TRL", "TDC", "TLB", "CARGO"].includes(t)) return "Logistics";
 
   return "Plant";
+}
+
+function formatHistoryDate(value: string) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
 }
