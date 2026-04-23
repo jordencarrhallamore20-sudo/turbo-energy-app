@@ -58,10 +58,18 @@ export default function DashboardClient({ role, username }: DashboardClientProps
 
   useEffect(() => {
     void loadMachinesFromSupabase();
+
+    const interval = setInterval(() => {
+      void loadMachinesFromSupabase(false);
+    }, 15000);
+
+    return () => clearInterval(interval);
   }, []);
 
-  async function loadMachinesFromSupabase() {
-    setLoadingData(true);
+  async function loadMachinesFromSupabase(showLoader = true) {
+    if (showLoader) {
+      setLoadingData(true);
+    }
 
     const { data, error } = await supabase
       .from("machines")
@@ -416,6 +424,26 @@ export default function DashboardClient({ role, username }: DashboardClientProps
     if (el) el.scrollIntoView({ behavior: "smooth" });
   };
 
+  if (loadingData) {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "#081733",
+          color: "white",
+          fontFamily: "Arial, Helvetica, sans-serif",
+          fontWeight: 800,
+          fontSize: "20px"
+        }}
+      >
+        Loading dashboard...
+      </div>
+    );
+  }
+
   return (
     <div className="page">
       <div className="shell">
@@ -501,7 +529,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                 </div>
 
                 <div className="infoBox">
-                  Shared mode is now active. Admin changes save to Supabase and all devices can use Refresh Data to see the latest shared dashboard.
+                  Shared mode is now active. Admin changes save to Supabase and all devices auto-refresh every 15 seconds.
                 </div>
               </section>
             )}
@@ -682,7 +710,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                   <div className="noteIcon">📄</div>
                   <div>
                     <h3>Shared database live</h3>
-                    <p>Admin changes save to Supabase. Users can press Refresh Data to pull the latest shared information.</p>
+                    <p>Admin changes save to Supabase. Users auto-refresh every 15 seconds and can also press Refresh Data.</p>
                   </div>
                 </div>
 
