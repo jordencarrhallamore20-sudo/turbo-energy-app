@@ -3,6 +3,7 @@
 import { signOut } from "next-auth/react";
 import * as XLSX from "xlsx";
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
+import { supabase } from "../lib/supabase";
 
 type Machine = {
   fleet: string;
@@ -53,32 +54,86 @@ export default function DashboardClient({ role, username }: DashboardClientProps
   const [sheetNames, setSheetNames] = useState<string[]>([]);
   const [workbookSheets, setWorkbookSheets] = useState<WorkbookSheetData[]>([]);
   const [activeSheet, setActiveSheet] = useState("");
+  const [loadingData, setLoadingData] = useState(true);
 
   useEffect(() => {
-    const stored = localStorage.getItem("turboMachineData");
+    async function loadMachinesFromSupabase() {
+      setLoadingData(true);
 
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored) as Machine[];
-        const normalized = parsed.map(normalizeLoadedMachine);
-        setMachines(normalized);
-        localStorage.setItem("turboMachineData", JSON.stringify(normalized));
-      } catch {
+      const { data, error } = await supabase
+        .from("machines")
+        .select(`
+          fleet,
+          type,
+          machineType,
+          status,
+          location,
+          department,
+          availability,
+          updated,
+          majorRepair,
+          repairReason,
+          sparesEta
+        `);
+
+      if (error) {
+        console.error("Supabase load error:", error);
         const normalizedSample = sampleData.map(normalizeLoadedMachine);
         setMachines(normalizedSample);
-        localStorage.setItem("turboMachineData", JSON.stringify(normalizedSample));
+        setLoadingData(false);
+        return;
       }
-    } else {
-      const normalizedSample = sampleData.map(normalizeLoadedMachine);
-      setMachines(normalizedSample);
-      localStorage.setItem("turboMachineData", JSON.stringify(normalizedSample));
+
+      if (!data || data.length === 0) {
+        const normalizedSample = sampleData.map(normalizeLoadedMachine);
+        setMachines(normalizedSample);
+        setLoadingData(false);
+        return;
+      }
+
+      const normalized = (data as Machine[]).map(normalizeLoadedMachine);
+      setMachines(normalized);
+      setLoadingData(false);
     }
+
+    loadMachinesFromSupabase();
   }, []);
 
-  const saveMachines = (data: Machine[]) => {
+  const saveMachines = async (data: Machine[]) => {
     const normalized = data.map(normalizeLoadedMachine);
     setMachines(normalized);
-    localStorage.setItem("turboMachineData", JSON.stringify(normalized));
+
+    const payload = normalized.map((machine) => ({
+      fleet: machine.fleet,
+      type: machine.type,
+      machineType: machine.machineType,
+      status: machine.status,
+      location: machine.location,
+      department: machine.department,
+      availability: Number(machine.availability) || 0,
+      updated: machine.updated || "",
+      majorRepair: Boolean(machine.majorRepair),
+      repairReason: machine.repairReason || "",
+      sparesEta: machine.sparesEta || "",
+    }));
+
+    const { error: deleteError } = await supabase
+      .from("machines")
+      .delete()
+      .neq("fleet", "__NONE__");
+
+    if (deleteError) {
+      console.error("Supabase delete error:", deleteError);
+      alert("Could not clear old shared machine data.");
+      return;
+    }
+
+    const { error: insertError } = await supabase.from("machines").insert(payload);
+
+    if (insertError) {
+      console.error("Supabase insert error:", insertError);
+      alert("Could not save shared machine data.");
+    }
   };
 
   const mainMachines = useMemo(() => machines.filter((m) => !m.majorRepair), [machines]);
@@ -155,7 +210,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
     });
   }, [machines]);
 
-  const updateMachineField = (
+  const updateMachineField = async (
     fleet: string,
     field: keyof Machine,
     value: string | number | boolean
@@ -175,10 +230,10 @@ export default function DashboardClient({ role, username }: DashboardClientProps
         : machine
     );
 
-    saveMachines(updated);
+    await saveMachines(updated);
   };
 
-  const setMajorRepair = (fleet: string, enabled: boolean) => {
+  const setMajorRepair = async (fleet: string, enabled: boolean) => {
     if (!isAdmin) {
       alert("Access denied: admin only");
       return;
@@ -197,7 +252,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
       });
     });
 
-    saveMachines(updated);
+    await saveMachines(updated);
   };
 
   const handleExport = () => {
@@ -254,18 +309,37 @@ export default function DashboardClient({ role, username }: DashboardClientProps
     window.print();
   };
 
-  const handleRefresh = () => {
-    const stored = localStorage.getItem("turboMachineData");
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored) as Machine[];
-        const normalized = parsed.map(normalizeLoadedMachine);
-        setMachines(normalized);
-        localStorage.setItem("turboMachineData", JSON.stringify(normalized));
-      } catch {
-        saveMachines(sampleData);
-      }
+  const handleRefresh = async () => {
+    setLoadingData(true);
+
+    const { data, error } = await supabase
+      .from("machines")
+      .select(`
+        fleet,
+        type,
+        machineType,
+        status,
+        location,
+        department,
+        availability,
+        updated,
+        majorRepair,
+        repairReason,
+        sparesEta
+      `);
+
+    if (error) {
+      console.error("Supabase refresh error:", error);
+      alert("Could not refresh shared data.");
+      setLoadingData(false);
+      return;
     }
+
+    if (data && data.length > 0) {
+      setMachines((data as Machine[]).map(normalizeLoadedMachine));
+    }
+
+    setLoadingData(false);
   };
 
   const handleSpreadsheetUpload = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -287,7 +361,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
         const parsed = parseCSV(text);
 
         if (parsed.length > 0) {
-          saveMachines(parsed);
+          await saveMachines(parsed);
           setSheetNames(["CSV"]);
           setWorkbookSheets([{ name: "CSV", rows: [] }]);
           setActiveSheet("CSV");
@@ -330,7 +404,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
         const parsed = parseSelectedSheet(preferredSheet.name, preferredSheet.rows);
 
         if (parsed.length > 0) {
-          saveMachines(parsed);
+          await saveMachines(parsed);
           setActiveSheet(preferredSheet.name);
         } else {
           alert("Spreadsheet loaded, but the selected sheet did not contain machine summary rows.");
@@ -346,7 +420,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
     }
   };
 
-  const loadSheetByName = (sheetName: string) => {
+  const loadSheetByName = async (sheetName: string) => {
     if (!isAdmin) {
       alert("Access denied: admin only");
       return;
@@ -358,7 +432,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
     const parsed = parseSelectedSheet(selected.name, selected.rows);
 
     if (parsed.length > 0) {
-      saveMachines(parsed);
+      await saveMachines(parsed);
       setActiveSheet(sheetName);
     } else {
       alert(`Sheet "${sheetName}" does not contain machine summary rows for the dashboard.`);
@@ -469,7 +543,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                 </div>
 
                 <div className="infoBox">
-                  Excel upload now uses <strong>Summary</strong> first, then <strong>Summary (Excl Tyre)</strong>. Registration-style light vehicles are grouped into <strong>LDV</strong>.
+                  Shared mode is now active. When admin uploads or edits, all devices can refresh and see the same data.
                 </div>
               </section>
             )}
@@ -649,8 +723,8 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                 <div className="noteCard">
                   <div className="noteIcon">📄</div>
                   <div>
-                    <h3>Excel upload fixed</h3>
-                    <p>Workbook now uses Summary sheets first instead of the event log sheet.</p>
+                    <h3>Shared database live</h3>
+                    <p>Admin changes are now stored centrally. Users can press refresh to see the newest shared data.</p>
                   </div>
                 </div>
 
@@ -702,10 +776,10 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                             onChange={(e) => {
                               const value = e.target.value;
                               if (value === "Major Repair") {
-                                setMajorRepair(machine.fleet, true);
+                                void setMajorRepair(machine.fleet, true);
                               } else {
-                                updateMachineField(machine.fleet, "status", value);
-                                if (machine.majorRepair) setMajorRepair(machine.fleet, false);
+                                void updateMachineField(machine.fleet, "status", value);
+                                if (machine.majorRepair) void setMajorRepair(machine.fleet, false);
                               }
                             }}
                             className="selectInput"
@@ -725,7 +799,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                             type="number"
                             value={machine.availability}
                             onChange={(e) =>
-                              updateMachineField(machine.fleet, "availability", Number(e.target.value || 0))
+                              void updateMachineField(machine.fleet, "availability", Number(e.target.value || 0))
                             }
                           />
                         </div>
@@ -737,7 +811,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                             type="text"
                             value={machine.repairReason}
                             placeholder="Reason for major repair"
-                            onChange={(e) => updateMachineField(machine.fleet, "repairReason", e.target.value)}
+                            onChange={(e) => void updateMachineField(machine.fleet, "repairReason", e.target.value)}
                           />
                         </div>
 
@@ -748,7 +822,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                             type="text"
                             value={machine.sparesEta}
                             placeholder="e.g. 30 Apr 2026"
-                            onChange={(e) => updateMachineField(machine.fleet, "sparesEta", e.target.value)}
+                            onChange={(e) => void updateMachineField(machine.fleet, "sparesEta", e.target.value)}
                           />
                         </div>
 
@@ -758,7 +832,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                             className="textInput"
                             type="text"
                             value={machine.location}
-                            onChange={(e) => updateMachineField(machine.fleet, "location", e.target.value)}
+                            onChange={(e) => void updateMachineField(machine.fleet, "location", e.target.value)}
                           />
                         </div>
                       </div>
@@ -767,14 +841,14 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                         {!machine.majorRepair ? (
                           <button
                             className="miniAction orangeMini"
-                            onClick={() => setMajorRepair(machine.fleet, true)}
+                            onClick={() => void setMajorRepair(machine.fleet, true)}
                           >
                             Move to major repair
                           </button>
                         ) : (
                           <button
                             className="miniAction"
-                            onClick={() => setMajorRepair(machine.fleet, false)}
+                            onClick={() => void setMajorRepair(machine.fleet, false)}
                           >
                             Remove from major repair
                           </button>
@@ -815,8 +889,8 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                   />
                 </div>
 
-                <button className="pillButton solidButton" onClick={handleRefresh}>
-                  Refresh data
+                <button className="pillButton solidButton" onClick={() => void handleRefresh()}>
+                  {loadingData ? "Refreshing..." : "Refresh data"}
                 </button>
               </div>
 
@@ -873,7 +947,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                 <button
                   key={name}
                   className={`sheetTab ${activeSheet === name ? "activeSheetTab" : ""}`}
-                  onClick={() => loadSheetByName(name)}
+                  onClick={() => void loadSheetByName(name)}
                 >
                   {name}
                 </button>
