@@ -919,6 +919,85 @@ const generateReport = async () => {
             )}
 
             <section className="panel">
+  <div className="sectionHeading">
+    <h2>Report Generator</h2>
+    <p>Select machines and dates to generate a report from history.</p>
+  </div>
+
+  <div className="controlsRow">
+    <select
+      multiple
+      value={reportMachines}
+      onChange={(e) =>
+        setReportMachines(
+          Array.from(e.target.selectedOptions, (option) => option.value)
+        )
+      }
+      className="selectInput"
+      style={{ minHeight: "130px" }}
+    >
+      {machines.map((machine) => (
+        <option key={machine.fleet} value={machine.fleet}>
+          {machine.fleet} - {machine.machineType}
+        </option>
+      ))}
+    </select>
+
+    <input
+      type="date"
+      value={reportFrom}
+      onChange={(e) => setReportFrom(e.target.value)}
+      className="textInput"
+    />
+
+    <input
+      type="date"
+      value={reportTo}
+      onChange={(e) => setReportTo(e.target.value)}
+      className="textInput"
+    />
+
+    <button className="pillButton" onClick={generateReport}>
+      Generate Report
+    </button>
+  </div>
+
+  <div className="tableWrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Fleet</th>
+          <th>Action</th>
+          <th>Field</th>
+          <th>Old</th>
+          <th>New</th>
+          <th>Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        {reportData.length === 0 ? (
+          <tr>
+            <td colSpan={7}>No report generated yet.</td>
+          </tr>
+        ) : (
+          reportData.map((item) => (
+            <tr key={item.id}>
+              <td>{formatHistoryDate(item.created_at)}</td>
+              <td>{item.fleet}</td>
+              <td>{item.action}</td>
+              <td>{item.field}</td>
+              <td>{item.old_value}</td>
+              <td>{item.new_value}</td>
+              <td>{item.notes}</td>
+            </tr>
+          ))
+        )}
+      </tbody>
+    </table>
+  </div>
+</section>
+            <section className="panel">
               <div className="sectionTitleRow">
                 <h2>Availability by Machine Type</h2>
                 <span>% Available</span>
