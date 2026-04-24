@@ -311,7 +311,36 @@ const [reportData, setReportData] = useState<HistoryItem[]>([]);
 
     return true;
   }
+  
+const generateReport = async () => {
+  if (!reportFrom || !reportTo) {
+    alert("Select date range");
+    return;
+  }
 
+  const { data, error } = await supabase
+    .from("machine_history")
+    .select("*")
+    .gte("created_at", reportFrom)
+    .lte("created_at", reportTo)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error(error);
+    alert("Error generating report");
+    return;
+  }
+
+  let filtered = data || [];
+
+  if (reportMachines.length > 0) {
+    filtered = filtered.filter((item) =>
+      reportMachines.includes(item.fleet)
+    );
+  }
+
+  setReportData(filtered);
+};
   const mainMachines = useMemo(
     () => machines.filter((m) => !m.majorRepair),
     [machines]
