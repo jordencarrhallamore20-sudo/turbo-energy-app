@@ -22,12 +22,38 @@ type Machine = {
   downtimeStartedAt?: string | null;
 };
 
+type QueuedUpdate = {
+  id: string;
+  createdAt: string;
+  actor: string;
+  fleet: string;
+  payload: {
+    status: string;
+    hoursWorked: number;
+    hoursDown: number;
+    onlineStatus: string;
+    downtimeReason: string;
+    repairReason: string;
+    updated: string;
+    downtimeStartedAt: string | null;
+  };
+  history: {
+    action: string;
+    fleet: string;
+    field: string;
+    oldValue: string;
+    newValue: string;
+    notes: string;
+  };
+};
+
 const FOREMAN_PIN = "1234";
+const OFFLINE_QUEUE_KEY = "turbo_foreman_offline_queue_v1";
 
 const statusOptions = ["Available", "Repair", "Maintenance", "Down", "Major Repair"];
 const onlineOptions = ["Online", "Offline", "Standby"];
 
-export default function ForemanPage() {
+export default function MachineUpdatePage() {
   const [loggedIn, setLoggedIn] = useState(false);
   const [pin, setPin] = useState("");
   const [foremanName, setForemanName] = useState("");
@@ -38,6 +64,10 @@ export default function ForemanPage() {
   const [search, setSearch] = useState("");
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  const [isOnline, setIsOnline] = useState(true);
+  const [queuedCount, setQueuedCount] = useState(0);
+  const [syncing, setSyncing] = useState(false);
 
   const selectedMachine = useMemo(() => {
     return machines.find((machine) => machine.fleet === selectedFleet);
@@ -60,13 +90,50 @@ export default function ForemanPage() {
   }, [machines, search]);
 
   useEffect(() => {
+    setIsOnline(typeof navigator === "undefined" ? true : navigator.onLine);
+    setQueuedCount(readQueue().length);
+
+    function handleOnline() {
+      setIsOnline(true);
+      void syncOfflineQueue();
+    }
+
+    function handleOffline() {
+      setIsOnline(false);
+    }
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+
+  useEffect(() => {
     if (loggedIn) {
       void loadMachines();
+      if (navigator.onLine) void syncOfflineQueue();
     }
   }, [loggedIn]);
 
   async function loadMachines() {
     setLoading(true);
+
+    const cached = readCachedMachines();
+    if (cached.length > 0) {
+      setMachines(cached);
+      if (!selectedFleet) {
+        setSelectedFleet(cached[0].fleet);
+        setForm(cached[0]);
+      }
+    }
+
+    if (!navigator.onLine) {
+      setLoading(false);
+      return;
+    }
 
     const { data, error } = await supabase
       .from("machines")
@@ -77,18 +144,20 @@ export default function ForemanPage() {
 
     if (error) {
       console.error(error);
-      alert("Could not load machines.");
+      alert("Could not load live machines. Using saved offline list if available.");
       setLoading(false);
       return;
     }
 
     const normalized = ((data || []) as Machine[]).map(normalizeMachine);
     setMachines(normalized);
+    writeCachedMachines(normalized);
 
     if (normalized.length > 0) {
-      const first = normalized[0];
-      setSelectedFleet(first.fleet);
-      setForm(first);
+      const existing = normalized.find((machine) => machine.fleet === selectedFleet);
+      const chosen = existing || normalized[0];
+      setSelectedFleet(chosen.fleet);
+      setForm(chosen);
     }
 
     setLoading(false);
@@ -108,6 +177,23 @@ export default function ForemanPage() {
     setLoggedIn(true);
   }
 
+  function handleSearch(value: string) {
+    setSearch(value);
+
+    const found = machines.find((machine) =>
+      machine.fleet.toLowerCase().includes(value.toLowerCase()) ||
+      String(machine.machineType || "").toLowerCase().includes(value.toLowerCase()) ||
+      String(machine.type || "").toLowerCase().includes(value.toLowerCase()) ||
+      String(machine.department || "").toLowerCase().includes(value.toLowerCase()) ||
+      String(machine.location || "").toLowerCase().includes(value.toLowerCase())
+    );
+
+    if (found) {
+      setSelectedFleet(found.fleet);
+      setForm(found);
+    }
+  }
+
   function selectMachine(fleet: string) {
     const machine = machines.find((item) => item.fleet === fleet);
     if (!machine) return;
@@ -125,7 +211,7 @@ export default function ForemanPage() {
     notes?: string;
   }) {
     const { error } = await supabase.from("machine_history").insert({
-      actor: foremanName || "Foreman",
+      actor: foremanName || "Machine Update",
       action: entry.action,
       fleet: entry.fleet,
       field: entry.field || "",
@@ -139,13 +225,11 @@ export default function ForemanPage() {
     }
   }
 
-  async function save() {
+  function buildUpdate(): QueuedUpdate | null {
     if (!selectedFleet || !selectedMachine) {
       alert("Select a machine first.");
-      return;
+      return null;
     }
-
-    setSaving(true);
 
     const oldOnlineStatus = selectedMachine.onlineStatus || "Online";
     const newOnlineStatus = String(form.onlineStatus || "Online");
@@ -162,10 +246,12 @@ export default function ForemanPage() {
     const wasRunning = isMachineRunning(oldStatus, oldOnlineStatus);
     const isRunningNow = isMachineRunning(newStatus, newOnlineStatus);
 
+    // Start downtime when machine moves from running to down/offline/repair.
     if (wasRunning && !isRunningNow) {
       downtimeStartedAt = new Date().toISOString();
     }
 
+    // Close downtime and add duration when machine moves back online/running.
     if (!wasRunning && isRunningNow && downtimeStartedAt) {
       const downStart = new Date(downtimeStartedAt).getTime();
       const now = Date.now();
@@ -178,11 +264,12 @@ export default function ForemanPage() {
       downtimeStartedAt = null;
     }
 
+    // If saved as down/offline but no start time exists, start it now.
     if (!isRunningNow && !downtimeStartedAt) {
       downtimeStartedAt = new Date().toISOString();
     }
 
-    const updatePayload = {
+    const payload = {
       status: newStatus,
       hoursWorked: Number(form.hoursWorked || 0),
       hoursDown: finalHoursDown,
@@ -193,32 +280,123 @@ export default function ForemanPage() {
       downtimeStartedAt,
     };
 
-    const { error } = await supabase
-      .from("machines")
-      .update(updatePayload)
-      .eq("fleet", selectedFleet);
+    return {
+      id: `${selectedFleet}-${Date.now()}`,
+      createdAt: new Date().toISOString(),
+      actor: foremanName || "Machine Update",
+      fleet: selectedFleet,
+      payload,
+      history: {
+        action: "Mobile machine update",
+        fleet: selectedFleet,
+        field: "status/online/hours",
+        oldValue: `${oldStatus} / ${oldOnlineStatus} / Down ${oldHoursDown}`,
+        newValue: `${newStatus} / ${newOnlineStatus} / Down ${finalHoursDown}`,
+        notes:
+          String(form.downtimeReason || form.repairReason || "").trim() ||
+          "Mobile machine update",
+      },
+    };
+  }
 
-    if (error) {
-      console.error(error);
-      alert("Update failed.");
+  async function save() {
+    const update = buildUpdate();
+    if (!update) return;
+
+    setSaving(true);
+
+    applyLocalUpdate(update);
+
+    if (!navigator.onLine) {
+      queueUpdate(update);
+      setQueuedCount(readQueue().length);
+      alert("No internet. Update saved offline and will sync when signal returns.");
       setSaving(false);
       return;
     }
 
-    await addHistoryEntry({
-      action: "Foreman machine update",
-      fleet: selectedFleet,
-      field: "status/online/hours",
-      oldValue: `${oldStatus} / ${oldOnlineStatus} / Down ${oldHoursDown}`,
-      newValue: `${newStatus} / ${newOnlineStatus} / Down ${finalHoursDown}`,
-      notes:
-        String(form.downtimeReason || form.repairReason || "").trim() ||
-        "Mobile foreman update",
-    });
+    const ok = await sendUpdateToSupabase(update);
+
+    if (!ok) {
+      queueUpdate(update);
+      setQueuedCount(readQueue().length);
+      alert("Could not reach server. Update saved offline and will sync later.");
+      setSaving(false);
+      return;
+    }
 
     await loadMachines();
     alert("Machine updated.");
     setSaving(false);
+  }
+
+  function applyLocalUpdate(update: QueuedUpdate) {
+    const updatedMachines = machines.map((machine) =>
+      machine.fleet === update.fleet
+        ? normalizeMachine({
+            ...machine,
+            ...update.payload,
+          })
+        : machine
+    );
+
+    setMachines(updatedMachines);
+    writeCachedMachines(updatedMachines);
+
+    const updated = updatedMachines.find((machine) => machine.fleet === update.fleet);
+    if (updated) {
+      setForm(updated);
+      setSelectedFleet(updated.fleet);
+    }
+  }
+
+  async function sendUpdateToSupabase(update: QueuedUpdate) {
+    const { error } = await supabase
+      .from("machines")
+      .update(update.payload)
+      .eq("fleet", update.fleet);
+
+    if (error) {
+      console.error(error);
+      return false;
+    }
+
+    await addHistoryEntry({
+      action: update.history.action,
+      fleet: update.history.fleet,
+      field: update.history.field,
+      oldValue: update.history.oldValue,
+      newValue: update.history.newValue,
+      notes: update.history.notes,
+    });
+
+    return true;
+  }
+
+  async function syncOfflineQueue() {
+    const queue = readQueue();
+
+    if (queue.length === 0 || !navigator.onLine) {
+      setQueuedCount(queue.length);
+      return;
+    }
+
+    setSyncing(true);
+
+    const failed: QueuedUpdate[] = [];
+
+    for (const update of queue) {
+      const ok = await sendUpdateToSupabase(update);
+      if (!ok) failed.push(update);
+    }
+
+    writeQueue(failed);
+    setQueuedCount(failed.length);
+    setSyncing(false);
+
+    if (failed.length === 0) {
+      await loadMachines();
+    }
   }
 
   if (!loggedIn) {
@@ -226,7 +404,7 @@ export default function ForemanPage() {
       <div className="page">
         <div className="loginCard">
           <div className="logoText">TURBO ENERGY</div>
-          <h1>Foreman Login</h1>
+          <h1>Machine Update Login</h1>
           <p>Enter your name and PIN to update machine status from your phone.</p>
 
           <input
@@ -282,29 +460,31 @@ export default function ForemanPage() {
           </button>
         </header>
 
+        <section className="statusPanel">
+          <div className={isOnline ? "connectionOnline" : "connectionOffline"}>
+            {isOnline ? "Online" : "Offline Mode"}
+          </div>
+
+          <div className="queueText">
+            Queued updates: <strong>{queuedCount}</strong>
+          </div>
+
+          <button
+            className="smallButton"
+            onClick={() => void syncOfflineQueue()}
+            disabled={!isOnline || syncing || queuedCount === 0}
+          >
+            {syncing ? "Syncing..." : "Sync Now"}
+          </button>
+        </section>
+
         <section className="panel">
           <label className="label">Search machine</label>
           <input
             className="input"
             placeholder="Search fleet, type, department, location..."
             value={search}
-            onChange={(event) => {
-              const value = event.target.value;
-              setSearch(value);
-
-              const found = machines.find((machine) =>
-                machine.fleet.toLowerCase().includes(value.toLowerCase()) ||
-                String(machine.machineType || "").toLowerCase().includes(value.toLowerCase()) ||
-                String(machine.type || "").toLowerCase().includes(value.toLowerCase()) ||
-                String(machine.department || "").toLowerCase().includes(value.toLowerCase()) ||
-                String(machine.location || "").toLowerCase().includes(value.toLowerCase())
-              );
-
-              if (found) {
-                setSelectedFleet(found.fleet);
-                setForm(found);
-              }
-            }}
+            onChange={(event) => handleSearch(event.target.value)}
           />
 
           <label className="label">Select machine</label>
@@ -442,7 +622,7 @@ export default function ForemanPage() {
               onClick={() => void save()}
               disabled={saving}
             >
-              {saving ? "Saving..." : "Save Update"}
+              {saving ? "Saving..." : isOnline ? "Save Update" : "Save Offline"}
             </button>
 
             <button className="secondaryButton" onClick={() => void loadMachines()}>
@@ -452,11 +632,13 @@ export default function ForemanPage() {
         )}
 
         <section className="panel">
-          <h3>How auto downtime works</h3>
+          <h3>How offline mode and downtime works</h3>
           <p>
-            When a machine changes from Online/Available to Offline, Down, Repair,
-            Maintenance, or Major Repair, downtime starts. When it returns to
-            Online/Available, the system adds the elapsed time to Hours Down.
+            If there is no signal, the update is saved on the phone and queued.
+            When internet returns, it syncs automatically. Downtime starts when
+            the machine is booked Offline, Down, Repair, Maintenance, or Major
+            Repair. When it is booked back Online/Available, the system adds the
+            elapsed time to Hours Down and clears the downtime start time.
           </p>
         </section>
       </div>
@@ -524,6 +706,43 @@ function formatDateTime(value: string) {
   return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
 }
 
+function readQueue(): QueuedUpdate[] {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const raw = window.localStorage.getItem(OFFLINE_QUEUE_KEY);
+    return raw ? (JSON.parse(raw) as QueuedUpdate[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeQueue(queue: QueuedUpdate[]) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
+}
+
+function queueUpdate(update: QueuedUpdate) {
+  const queue = readQueue();
+  writeQueue([...queue, update]);
+}
+
+function readCachedMachines(): Machine[] {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const raw = window.localStorage.getItem("turbo_cached_machines_v1");
+    return raw ? (JSON.parse(raw) as Machine[]).map(normalizeMachine) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeCachedMachines(machines: Machine[]) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem("turbo_cached_machines_v1", JSON.stringify(machines));
+}
+
 const styles = `
   .page {
     min-height: 100vh;
@@ -580,7 +799,8 @@ const styles = `
   }
 
   .loginCard,
-  .panel {
+  .panel,
+  .statusPanel {
     background: linear-gradient(180deg, rgba(17, 42, 87, 0.96), rgba(10, 29, 63, 0.96));
     border: 1px solid rgba(255,255,255,0.12);
     border-radius: 20px;
@@ -593,9 +813,55 @@ const styles = `
     padding: 22px;
   }
 
-  .panel {
+  .panel,
+  .statusPanel {
     padding: 16px;
     margin-bottom: 14px;
+  }
+
+  .statusPanel {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 10px;
+    align-items: center;
+  }
+
+  .connectionOnline,
+  .connectionOffline {
+    border-radius: 999px;
+    padding: 8px 12px;
+    font-weight: 900;
+    font-size: 13px;
+  }
+
+  .connectionOnline {
+    background: rgba(65,184,108,0.18);
+    color: #52dd84;
+  }
+
+  .connectionOffline {
+    background: rgba(201,72,96,0.18);
+    color: #ff7b93;
+  }
+
+  .queueText {
+    color: #d8e1f6;
+    font-size: 14px;
+  }
+
+  .smallButton {
+    border: 1px solid rgba(255,255,255,0.16);
+    background: rgba(255,255,255,0.1);
+    color: white;
+    border-radius: 999px;
+    padding: 9px 12px;
+    font-weight: 900;
+    cursor: pointer;
+  }
+
+  .smallButton:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
   }
 
   .label {
@@ -739,6 +1005,10 @@ const styles = `
     .header,
     .machineHeader {
       flex-direction: column;
+    }
+
+    .statusPanel {
+      grid-template-columns: 1fr;
     }
 
     .logoutButton {
