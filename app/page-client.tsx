@@ -173,6 +173,11 @@ export default function DashboardClient({
   const [loadingData, setLoadingData] = useState(true);
   const [selectedFleet, setSelectedFleet] = useState("");
 
+  const [reportMachines, setReportMachines] = useState<string[]>([]);
+const [reportFrom, setReportFrom] = useState("");
+const [reportTo, setReportTo] = useState("");
+const [reportData, setReportData] = useState<HistoryItem[]>([]);
+
   useEffect(() => {
     void Promise.all([loadMachinesFromSupabase(), loadHistoryFromSupabase()]);
 
