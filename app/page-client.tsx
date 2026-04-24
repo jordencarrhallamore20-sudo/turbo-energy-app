@@ -47,6 +47,9 @@ type DashboardClientProps = {
 
 type RegisterFilter = "ALL" | "AVAILABLE" | "DOWN" | "MAJOR";
 
+const departments = ["Plant", "Mining", "Logistics", "Admin", "Workshop"];
+const onlineStatuses = ["Online", "Offline", "Standby"];
+
 const sampleData: Machine[] = [
   {
     fleet: "FEL09",
@@ -66,31 +69,14 @@ const sampleData: Machine[] = [
     downtimeReason: "",
   },
   {
-    fleet: "FEL10",
-    type: "FEL",
-    machineType: "966H",
-    status: "Available",
-    location: "Hwange",
-    department: "Plant",
-    availability: 91,
-    updated: "19 Apr 2026",
-    majorRepair: false,
-    repairReason: "",
-    sparesEta: "",
-    hoursWorked: 224,
-    hoursDown: 4,
-    onlineStatus: "Online",
-    downtimeReason: "",
-  },
-  {
     fleet: "TEX01",
     type: "TEX",
     machineType: "TK371",
     status: "Repair",
-    location: "Kariba",
+    location: "Hwange",
     department: "Mining",
     availability: 75,
-    updated: "18 Apr 2026",
+    updated: "19 Apr 2026",
     majorRepair: false,
     repairReason: "Hydraulic leak",
     sparesEta: "26 Apr 2026",
@@ -98,40 +84,6 @@ const sampleData: Machine[] = [
     hoursDown: 24,
     onlineStatus: "Offline",
     downtimeReason: "Hydraulic system repair",
-  },
-  {
-    fleet: "TRT07",
-    type: "TRT",
-    machineType: "TR100",
-    status: "Available",
-    location: "Hwange",
-    department: "Logistics",
-    availability: 100,
-    updated: "18 Apr 2026",
-    majorRepair: false,
-    repairReason: "",
-    sparesEta: "",
-    hoursWorked: 250,
-    hoursDown: 0,
-    onlineStatus: "Online",
-    downtimeReason: "",
-  },
-  {
-    fleet: "HT03",
-    type: "HT",
-    machineType: "773E",
-    status: "Major Repair",
-    location: "Binga",
-    department: "Mining",
-    availability: 82,
-    updated: "17 Apr 2026",
-    majorRepair: true,
-    repairReason: "Engine rebuild",
-    sparesEta: "25 Apr 2026",
-    hoursWorked: 120,
-    hoursDown: 80,
-    onlineStatus: "Offline",
-    downtimeReason: "Engine rebuild",
   },
   {
     fleet: "AFE 5504",
@@ -152,13 +104,7 @@ const sampleData: Machine[] = [
   },
 ];
 
-const departments = ["Plant", "Mining", "Logistics", "Admin", "Workshop"];
-const onlineStatuses = ["Online", "Offline", "Standby"];
-
-export default function DashboardClient({
-  role,
-  username,
-}: DashboardClientProps) {
+export default function DashboardClient({ role, username }: DashboardClientProps) {
   const isAdmin = role === "admin";
 
   const [machines, setMachines] = useState<Machine[]>([]);
@@ -172,11 +118,10 @@ export default function DashboardClient({
   const [activeSheet, setActiveSheet] = useState("");
   const [loadingData, setLoadingData] = useState(true);
   const [selectedFleet, setSelectedFleet] = useState("");
-
   const [reportMachines, setReportMachines] = useState<string[]>([]);
-const [reportFrom, setReportFrom] = useState("");
-const [reportTo, setReportTo] = useState("");
-const [reportData, setReportData] = useState<HistoryItem[]>([]);
+  const [reportFrom, setReportFrom] = useState("");
+  const [reportTo, setReportTo] = useState("");
+  const [reportData, setReportData] = useState<HistoryItem[]>([]);
 
   useEffect(() => {
     void Promise.all([loadMachinesFromSupabase(), loadHistoryFromSupabase()]);
@@ -192,36 +137,28 @@ const [reportData, setReportData] = useState<HistoryItem[]>([]);
   async function loadMachinesFromSupabase(showLoader = true) {
     if (showLoader) setLoadingData(true);
 
-    const { data, error } = await supabase.from("machines").select(
-      'fleet,type,machineType,status,location,department,availability,updated,majorRepair,repairReason,sparesEta,hoursWorked,hoursDown,onlineStatus,downtimeReason'
-    );
+    const { data, error } = await supabase
+      .from("machines")
+      .select(
+        "fleet,type,machineType,status,location,department,availability,updated,majorRepair,repairReason,sparesEta,hoursWorked,hoursDown,onlineStatus,downtimeReason"
+      );
 
     if (error) {
       console.error("Supabase load error:", error);
-      const fallback = dedupeMachinesByFleet(
-        sampleData.map(normalizeLoadedMachine)
-      );
+      const fallback = dedupeMachinesByFleet(sampleData.map(normalizeLoadedMachine));
       setMachines(fallback);
-      if (!selectedFleet && fallback.length > 0) {
-        setSelectedFleet(fallback[0].fleet);
-      }
+      if (!selectedFleet && fallback.length > 0) setSelectedFleet(fallback[0].fleet);
       setLoadingData(false);
       return;
     }
 
     const loaded =
-      (data as Partial<Machine>[] | null)?.length
-        ? dedupeMachinesByFleet(
-            (data as Partial<Machine>[]).map((item) =>
-              normalizeLoadedMachine(item)
-            )
-          )
+      data && data.length > 0
+        ? dedupeMachinesByFleet((data as Partial<Machine>[]).map(normalizeLoadedMachine))
         : dedupeMachinesByFleet(sampleData.map(normalizeLoadedMachine));
 
     setMachines(loaded);
-    if (!selectedFleet && loaded.length > 0) {
-      setSelectedFleet(loaded[0].fleet);
-    }
+    if (!selectedFleet && loaded.length > 0) setSelectedFleet(loaded[0].fleet);
     setLoadingData(false);
   }
 
@@ -288,10 +225,7 @@ const [reportData, setReportData] = useState<HistoryItem[]>([]);
       downtimeReason: machine.downtimeReason || "",
     }));
 
-    const { error: deleteError } = await supabase
-      .from("machines")
-      .delete()
-      .neq("fleet", "__NONE__");
+    const { error: deleteError } = await supabase.from("machines").delete().neq("fleet", "__NONE__");
 
     if (deleteError) {
       console.error("Supabase delete error:", deleteError);
@@ -299,9 +233,7 @@ const [reportData, setReportData] = useState<HistoryItem[]>([]);
       return false;
     }
 
-    const { error: insertError } = await supabase
-      .from("machines")
-      .insert(payload);
+    const { error: insertError } = await supabase.from("machines").insert(payload);
 
     if (insertError) {
       console.error("Supabase insert error:", insertError);
@@ -311,66 +243,87 @@ const [reportData, setReportData] = useState<HistoryItem[]>([]);
 
     return true;
   }
-  
-const generateReport = async () => {
-  if (!reportFrom || !reportTo) {
-    alert("Select date range");
-    return;
-  }
 
-  const { data, error } = await supabase
-    .from("machine_history")
-    .select("*")
-    .gte("created_at", reportFrom)
-    .lte("created_at", reportTo)
-    .order("created_at", { ascending: false });
+  async function generateReport() {
+    if (!reportFrom || !reportTo) {
+      alert("Select date range");
+      return;
+    }
 
-  if (error) {
-    console.error(error);
-    alert("Error generating report");
-    return;
-  }
+    const from = `${reportFrom}T00:00:00`;
+    const to = `${reportTo}T23:59:59`;
 
-  let filtered = data || [];
+    const { data, error } = await supabase
+      .from("machine_history")
+      .select("*")
+      .gte("created_at", from)
+      .lte("created_at", to)
+      .order("created_at", { ascending: false });
 
-  if (reportMachines.length > 0) {
-    filtered = filtered.filter((item) =>
-      reportMachines.includes(item.fleet)
+    if (error) {
+      console.error("Report error:", error);
+      alert("Error generating report");
+      return;
+    }
+
+    const filtered = ((data as HistoryItem[]) || []).filter(
+      (item) => reportMachines.length === 0 || reportMachines.includes(item.fleet)
     );
+
+    setReportData(filtered);
   }
 
-  setReportData(filtered);
-};
-  const mainMachines = useMemo(
-    () => machines.filter((m) => !m.majorRepair),
-    [machines]
-  );
+  function exportReportCsv() {
+    if (reportData.length === 0) {
+      alert("Generate a report first");
+      return;
+    }
+
+    const headers = ["date", "fleet", "action", "field", "old", "new", "notes", "actor"];
+    const rows = reportData.map((item) =>
+      [
+        formatHistoryDate(item.created_at),
+        item.fleet,
+        item.action,
+        item.field,
+        item.old_value,
+        item.new_value,
+        item.notes,
+        item.actor,
+      ]
+        .map(csvCell)
+        .join(",")
+    );
+
+    const csvContent = [headers.join(","), ...rows].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "machine-report.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function printReport() {
+    window.print();
+  }
+
+  const mainMachines = useMemo(() => machines.filter((m) => !m.majorRepair), [machines]);
 
   const totalMachines = machines.length;
-  const availableMachines = mainMachines.filter((m) =>
-    m.status.toLowerCase().includes("avail")
-  ).length;
-  const repairsMachines = mainMachines.filter(
-    (m) => !m.status.toLowerCase().includes("avail")
-  ).length;
+  const availableMachines = mainMachines.filter((m) => m.status.toLowerCase().includes("avail")).length;
+  const repairsMachines = mainMachines.filter((m) => !m.status.toLowerCase().includes("avail")).length;
   const majorRepairsMachines = machines.filter((m) => m.majorRepair).length;
   const locationCount = new Set(machines.map((m) => m.location)).size;
 
   const typeOptions = useMemo(() => {
-    return [
-      "ALL",
-      ...Array.from(
-        new Set(machines.map((m) => normalizeTypeLabel(m.type)))
-      ).sort(),
-    ];
+    return ["ALL", ...Array.from(new Set(machines.map((m) => normalizeTypeLabel(m.type)))).sort()];
   }, [machines]);
 
   const filteredMachines = useMemo(() => {
     return machines.filter((machine) => {
-      const matchesType =
-        selectedType === "ALL" ||
-        normalizeTypeLabel(machine.type) === selectedType;
-
+      const matchesType = selectedType === "ALL" || normalizeTypeLabel(machine.type) === selectedType;
       const term = search.trim().toLowerCase();
       const matchesSearch =
         term === "" ||
@@ -385,13 +338,9 @@ const generateReport = async () => {
 
       let matchesRegisterFilter = true;
       if (registerFilter === "AVAILABLE") {
-        matchesRegisterFilter =
-          !machine.majorRepair &&
-          machine.status.toLowerCase().includes("avail");
+        matchesRegisterFilter = !machine.majorRepair && machine.status.toLowerCase().includes("avail");
       } else if (registerFilter === "DOWN") {
-        matchesRegisterFilter =
-          machine.majorRepair ||
-          !machine.status.toLowerCase().includes("avail");
+        matchesRegisterFilter = machine.majorRepair || !machine.status.toLowerCase().includes("avail");
       } else if (registerFilter === "MAJOR") {
         matchesRegisterFilter = machine.majorRepair;
       }
@@ -401,28 +350,19 @@ const generateReport = async () => {
   }, [machines, registerFilter, search, selectedType]);
 
   const selectedMachine = useMemo(() => {
-    return (
-      machines.find((machine) => machine.fleet === selectedFleet) ||
-      filteredFallbackMachine(machines)
-    );
+    return machines.find((machine) => machine.fleet === selectedFleet) || filteredFallbackMachine(machines);
   }, [machines, selectedFleet]);
 
   const selectedMachineHistory = useMemo(() => {
     if (!selectedMachine) return [];
-    return historyItems
-      .filter((item) => item.fleet === selectedMachine.fleet)
-      .slice(0, 12);
+    return historyItems.filter((item) => item.fleet === selectedMachine.fleet).slice(0, 12);
   }, [historyItems, selectedMachine]);
 
   const topSummary = mainMachines.slice(0, 8);
-  const majorRepairsList = useMemo(
-    () => machines.filter((m) => m.majorRepair),
-    [machines]
-  );
+  const majorRepairsList = useMemo(() => machines.filter((m) => m.majorRepair), [machines]);
 
   const groupedMachineTypeData = useMemo(() => {
     const groups: Record<string, number[]> = {};
-
     mainMachines.forEach((machine) => {
       const groupType = normalizeTypeLabel(machine.type);
       if (!groups[groupType]) groups[groupType] = [];
@@ -432,16 +372,13 @@ const generateReport = async () => {
     return Object.entries(groups)
       .map(([type, values]) => ({
         type,
-        availability: Math.round(
-          values.reduce((sum, value) => sum + value, 0) / values.length
-        ),
+        availability: Math.round(values.reduce((sum, value) => sum + value, 0) / values.length),
       }))
       .sort((a, b) => a.type.localeCompare(b.type));
   }, [mainMachines]);
 
   const departmentAvailability = useMemo(() => {
     const groups: Record<string, Machine[]> = {};
-
     machines.forEach((machine) => {
       if (!groups[machine.department]) groups[machine.department] = [];
       groups[machine.department].push(machine);
@@ -449,27 +386,13 @@ const generateReport = async () => {
 
     return Object.entries(groups).map(([department, items]) => {
       const active = items.filter((m) => !m.majorRepair);
-      const available = active.filter((m) =>
-        m.status.toLowerCase().includes("avail")
-      ).length;
-      const percent =
-        active.length === 0 ? 0 : Math.round((available / active.length) * 100);
-
-      return {
-        department,
-        total: items.length,
-        active: active.length,
-        available,
-        percent,
-      };
+      const available = active.filter((m) => m.status.toLowerCase().includes("avail")).length;
+      const percent = active.length === 0 ? 0 : Math.round((available / active.length) * 100);
+      return { department, total: items.length, active: active.length, available, percent };
     });
   }, [machines]);
 
-  async function updateMachineField(
-    fleet: string,
-    field: keyof Machine,
-    value: string | number | boolean
-  ) {
+  async function updateMachineField(fleet: string, field: keyof Machine, value: string | number | boolean) {
     if (!isAdmin) {
       alert("Access denied: admin only");
       return;
@@ -483,11 +406,7 @@ const generateReport = async () => {
 
     const updated = machines.map((machine) =>
       machine.fleet === fleet
-        ? normalizeLoadedMachine({
-            ...machine,
-            [field]: value,
-            updated: new Date().toLocaleDateString(),
-          })
+        ? normalizeLoadedMachine({ ...machine, [field]: value, updated: new Date().toLocaleDateString() })
         : machine
     );
 
@@ -515,7 +434,6 @@ const generateReport = async () => {
 
     const updated = machines.map((machine) => {
       if (machine.fleet !== fleet) return machine;
-
       return normalizeLoadedMachine({
         ...machine,
         majorRepair: enabled,
@@ -530,16 +448,12 @@ const generateReport = async () => {
     const saved = await saveMachines(updated);
     if (saved) {
       await addHistoryEntry({
-        action: enabled
-          ? "Moved to major repair"
-          : "Removed from major repair",
+        action: enabled ? "Moved to major repair" : "Removed from major repair",
         fleet,
         field: "majorRepair",
         oldValue: String(currentMachine.majorRepair),
         newValue: String(enabled),
-        notes: enabled
-          ? "Machine moved out of active fleet"
-          : "Machine returned to active fleet",
+        notes: enabled ? "Machine moved out of active fleet" : "Machine returned to active fleet",
       });
     }
   }
@@ -585,13 +499,13 @@ const generateReport = async () => {
         machine.onlineStatus,
         machine.downtimeReason,
         machine.updated,
-      ].join(",")
+      ]
+        .map(csvCell)
+        .join(",")
     );
 
     const csvContent = [headers.join(","), ...rows].join("\n");
-    const blob = new Blob([csvContent], {
-      type: "text/csv;charset=utf-8;",
-    });
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
@@ -612,9 +526,7 @@ const generateReport = async () => {
     await Promise.all([loadMachinesFromSupabase(), loadHistoryFromSupabase()]);
   }
 
-  async function handleSpreadsheetUpload(
-    event: ChangeEvent<HTMLInputElement>
-  ) {
+  async function handleSpreadsheetUpload(event: ChangeEvent<HTMLInputElement>) {
     if (!isAdmin) {
       alert("Admin only");
       return;
@@ -634,12 +546,7 @@ const generateReport = async () => {
 
         if (parsed.length > 0) {
           const saved = await saveMachines(parsed);
-          if (saved) {
-            await addHistoryEntry({
-              action: "Uploaded CSV",
-              notes: `${file.name} uploaded with ${parsed.length} rows`,
-            });
-          }
+          if (saved) await addHistoryEntry({ action: "Uploaded CSV", notes: `${file.name} uploaded with ${parsed.length} rows` });
           setSheetNames(["CSV"]);
           setWorkbookSheets([{ name: "CSV", rows: [] }]);
           setActiveSheet("CSV");
@@ -650,20 +557,13 @@ const generateReport = async () => {
         return;
       }
 
-      if (
-        lowerName.endsWith(".xlsx") ||
-        lowerName.endsWith(".xls") ||
-        lowerName.endsWith(".xlsm")
-      ) {
+      if (lowerName.endsWith(".xlsx") || lowerName.endsWith(".xls") || lowerName.endsWith(".xlsm")) {
         const buffer = await file.arrayBuffer();
         const workbook = XLSX.read(buffer, { type: "array" });
 
         const sheets: WorkbookSheetData[] = workbook.SheetNames.map((name) => {
           const sheet = workbook.Sheets[name];
-          const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(
-            sheet,
-            { defval: "" }
-          );
+          const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
           return { name, rows };
         });
 
@@ -681,10 +581,7 @@ const generateReport = async () => {
           return;
         }
 
-        const parsed = parseSelectedSheet(
-          preferredSheet.name,
-          preferredSheet.rows
-        );
+        const parsed = parseSelectedSheet(preferredSheet.name, preferredSheet.rows);
 
         if (parsed.length > 0) {
           const saved = await saveMachines(parsed);
@@ -697,11 +594,8 @@ const generateReport = async () => {
           setActiveSheet(preferredSheet.name);
           setSelectedFleet(parsed[0]?.fleet || "");
         } else {
-          alert(
-            "Spreadsheet loaded, but the selected sheet did not contain machine summary rows."
-          );
+          alert("Spreadsheet loaded, but the selected sheet did not contain machine summary rows.");
         }
-
         return;
       }
 
@@ -725,18 +619,11 @@ const generateReport = async () => {
 
     if (parsed.length > 0) {
       const saved = await saveMachines(parsed);
-      if (saved) {
-        await addHistoryEntry({
-          action: "Loaded workbook sheet",
-          notes: `Sheet ${sheetName} loaded with ${parsed.length} rows`,
-        });
-      }
+      if (saved) await addHistoryEntry({ action: "Loaded workbook sheet", notes: `Sheet ${sheetName} loaded with ${parsed.length} rows` });
       setActiveSheet(sheetName);
       setSelectedFleet(parsed[0]?.fleet || "");
     } else {
-      alert(
-        `Sheet "${sheetName}" does not contain machine summary rows for the dashboard.`
-      );
+      alert(`Sheet "${sheetName}" does not contain machine summary rows for the dashboard.`);
     }
   }
 
@@ -797,30 +684,23 @@ const generateReport = async () => {
   return (
     <div className="page">
       <div className="shell">
-        <div className="topMetaRow">
+        <div className="topMetaRow noPrint">
           <div className="userBadge">
-            Logged in as: <strong>{username}</strong> (
-            {isAdmin ? "admin" : "user"})
+            Logged in as: <strong>{username}</strong> ({isAdmin ? "admin" : "user"})
           </div>
-          <button
-            className="logoutButton"
-            onClick={() => signOut({ callbackUrl: "/login" })}
-          >
+          <button className="logoutButton" onClick={() => signOut({ callbackUrl: "/login" })}>
             Logout
           </button>
         </div>
 
-        <header className="topbar">
+        <header className="topbar noPrint">
           <div className="logoBox">
             <div className="logoText">TURBO ENERGY</div>
           </div>
 
           <div className="titleWrap">
             <h1>Turbo-Energy Machine Availability</h1>
-            <p>
-              Live fleet dashboard with admin movements, departments, repairs,
-              history, and machine details
-            </p>
+            <p>Live fleet dashboard with admin movements, departments, repairs, history, and machine details</p>
           </div>
 
           <div className="topActions">
@@ -843,38 +723,15 @@ const generateReport = async () => {
 
         <main className="dashboardGrid">
           <section className="leftColumn">
-            <div className="kpiGrid">
-              <KpiCard
-                icon="🏗"
-                title="TOTAL MACHINES"
-                value={totalMachines}
-                note="All units in the register"
-                onClick={showAllMachines}
-              />
-              <KpiCard
-                icon="✅"
-                title="AVAILABLE"
-                value={availableMachines}
-                note="Active units marked available"
-                onClick={showAvailableOnly}
-              />
-              <KpiCard
-                icon="🔧"
-                title="REPAIRS / DOWN"
-                value={repairsMachines}
-                note="Active units needing attention"
-                onClick={showRepairsDownOnly}
-              />
-              <KpiCard
-                icon="📍"
-                title="LOCATIONS"
-                value={locationCount}
-                note="Distinct operating locations"
-              />
+            <div className="kpiGrid noPrint">
+              <KpiCard icon="🏗" title="TOTAL MACHINES" value={totalMachines} note="All units in the register" onClick={showAllMachines} />
+              <KpiCard icon="✅" title="AVAILABLE" value={availableMachines} note="Active units marked available" onClick={showAvailableOnly} />
+              <KpiCard icon="🔧" title="REPAIRS / DOWN" value={repairsMachines} note="Active units needing attention" onClick={showRepairsDownOnly} />
+              <KpiCard icon="📍" title="LOCATIONS" value={locationCount} note="Distinct operating locations" />
             </div>
 
             {isAdmin && (
-              <section className="panel">
+              <section className="panel noPrint">
                 <div className="panelHeader">
                   <div>
                     <h2>Admin Upload and Save</h2>
@@ -882,17 +739,11 @@ const generateReport = async () => {
                   </div>
 
                   <div className="panelButtons">
-                    <button
-                      className="actionButton orangeButton"
-                      onClick={handleExport}
-                    >
+                    <button className="actionButton orangeButton" onClick={handleExport}>
                       Export CSV
                     </button>
-                    <button
-                      className="actionButton whiteButton"
-                      onClick={handlePrint}
-                    >
-                      Print report
+                    <button className="actionButton whiteButton" onClick={handlePrint}>
+                      Print page
                     </button>
                   </div>
                 </div>
@@ -911,93 +762,258 @@ const generateReport = async () => {
                   <span className="fileName">{fileName}</span>
                 </div>
 
-                <div className="infoBox">
-                  Shared mode and history are active. Duplicates by fleet are
-                  removed automatically.
+                <div className="infoBox">Shared mode and history are active. Duplicates by fleet are removed automatically.</div>
+              </section>
+            )}
+
+            {isAdmin && (
+              <section className="panel noPrint">
+                <div className="sectionHeading">
+                  <h2>Admin Machine Controls</h2>
+                  <p>Edit hours, online status, downtime reason, department, and repairs.</p>
+                </div>
+
+                <div className="adminList adminListTop">
+                  {machines.map((machine) => (
+                    <div key={machine.fleet} className="adminCard">
+                      <div className="adminTop">
+                        <div>
+                          <strong>{machine.fleet}</strong> - {machine.machineType}
+                        </div>
+                        <span className={`statusPill ${getStatusClass(machine.status, machine.majorRepair)}`}>
+                          {machine.majorRepair ? "Major Repair" : machine.status}
+                        </span>
+                      </div>
+
+                      <div className="adminGrid">
+                        <div>
+                          <label>Department</label>
+                          <select
+                            value={machine.department}
+                            onChange={(e) => void updateMachineField(machine.fleet, "department", e.target.value)}
+                            className="selectInput"
+                          >
+                            {departments.map((dep) => (
+                              <option key={dep} value={dep}>
+                                {dep}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label>Status</label>
+                          <select
+                            value={machine.majorRepair ? "Major Repair" : machine.status}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              if (value === "Major Repair") {
+                                void setMajorRepair(machine.fleet, true);
+                              } else {
+                                void updateMachineField(machine.fleet, "status", value);
+                                if (machine.majorRepair) void setMajorRepair(machine.fleet, false);
+                              }
+                            }}
+                            className="selectInput"
+                          >
+                            <option value="Available">Available</option>
+                            <option value="Repair">Repair</option>
+                            <option value="Maintenance">Maintenance</option>
+                            <option value="Down">Down</option>
+                            <option value="Major Repair">Major Repair</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <label>Availability %</label>
+                          <input
+                            className="textInput"
+                            type="number"
+                            value={machine.availability}
+                            onChange={(e) => void updateMachineField(machine.fleet, "availability", Number(e.target.value || 0))}
+                          />
+                        </div>
+
+                        <div>
+                          <label>Hours Worked</label>
+                          <input
+                            className="textInput"
+                            type="number"
+                            value={machine.hoursWorked}
+                            onChange={(e) => void updateMachineField(machine.fleet, "hoursWorked", Number(e.target.value || 0))}
+                          />
+                        </div>
+
+                        <div>
+                          <label>Hours Down</label>
+                          <input
+                            className="textInput"
+                            type="number"
+                            value={machine.hoursDown}
+                            onChange={(e) => void updateMachineField(machine.fleet, "hoursDown", Number(e.target.value || 0))}
+                          />
+                        </div>
+
+                        <div>
+                          <label>Online / Offline</label>
+                          <select
+                            value={machine.onlineStatus}
+                            onChange={(e) => void updateMachineField(machine.fleet, "onlineStatus", e.target.value)}
+                            className="selectInput"
+                          >
+                            {onlineStatuses.map((item) => (
+                              <option key={item} value={item}>
+                                {item}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label>Downtime Reason</label>
+                          <input
+                            className="textInput"
+                            type="text"
+                            value={machine.downtimeReason}
+                            onChange={(e) => void updateMachineField(machine.fleet, "downtimeReason", e.target.value)}
+                          />
+                        </div>
+
+                        <div>
+                          <label>Repair Reason</label>
+                          <input
+                            className="textInput"
+                            type="text"
+                            value={machine.repairReason}
+                            onChange={(e) => void updateMachineField(machine.fleet, "repairReason", e.target.value)}
+                          />
+                        </div>
+
+                        <div>
+                          <label>Spares ETA</label>
+                          <input
+                            className="textInput"
+                            type="text"
+                            value={machine.sparesEta}
+                            onChange={(e) => void updateMachineField(machine.fleet, "sparesEta", e.target.value)}
+                          />
+                        </div>
+
+                        <div>
+                          <label>Location</label>
+                          <input
+                            className="textInput"
+                            type="text"
+                            value={machine.location}
+                            onChange={(e) => void updateMachineField(machine.fleet, "location", e.target.value)}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="adminActions">
+                        {!machine.majorRepair ? (
+                          <button className="miniAction orangeMini" onClick={() => void setMajorRepair(machine.fleet, true)}>
+                            Move to major repair
+                          </button>
+                        ) : (
+                          <button className="miniAction" onClick={() => void setMajorRepair(machine.fleet, false)}>
+                            Remove from major repair
+                          </button>
+                        )}
+                        <button className="miniAction" onClick={() => setSelectedFleet(machine.fleet)}>
+                          Open detail
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </section>
             )}
 
-            <section className="panel">
-  <div className="sectionHeading">
-    <h2>Report Generator</h2>
-    <p>Select machines and dates to generate a report from history.</p>
-  </div>
+            <section className="panel reportPanel" id="report-generator">
+              <div className="sectionHeading reportHeader">
+                <div>
+                  <h2>Report Generator</h2>
+                  <p>Select machines and dates to generate a report from history.</p>
+                </div>
+                <div className="reportActions noPrint">
+                  <button className="pillButton" onClick={() => void generateReport()}>
+                    Generate Report
+                  </button>
+                  <button className="pillButton" onClick={printReport}>
+                    Print Report
+                  </button>
+                  <button className="pillButton" onClick={exportReportCsv}>
+                    Export Report CSV
+                  </button>
+                </div>
+              </div>
 
-  <div className="controlsRow">
-    <select
-      multiple
-      value={reportMachines}
-      onChange={(e) =>
-        setReportMachines(
-          Array.from(e.target.selectedOptions, (option) => option.value)
-        )
-      }
-      className="selectInput"
-      style={{ minHeight: "130px" }}
-    >
-      {machines.map((machine) => (
-        <option key={machine.fleet} value={machine.fleet}>
-          {machine.fleet} - {machine.machineType}
-        </option>
-      ))}
-    </select>
+              <div className="reportFilters noPrint">
+                <select
+                  multiple
+                  value={reportMachines}
+                  onChange={(e) => setReportMachines(Array.from(e.target.selectedOptions, (option) => option.value))}
+                  className="selectInput reportMachineSelect"
+                >
+                  {machines.map((machine) => (
+                    <option key={machine.fleet} value={machine.fleet}>
+                      {machine.fleet} - {machine.machineType}
+                    </option>
+                  ))}
+                </select>
 
-    <input
-      type="date"
-      value={reportFrom}
-      onChange={(e) => setReportFrom(e.target.value)}
-      className="textInput"
-    />
+                <input type="date" value={reportFrom} onChange={(e) => setReportFrom(e.target.value)} className="textInput" />
+                <input type="date" value={reportTo} onChange={(e) => setReportTo(e.target.value)} className="textInput" />
+              </div>
 
-    <input
-      type="date"
-      value={reportTo}
-      onChange={(e) => setReportTo(e.target.value)}
-      className="textInput"
-    />
+              <div className="printTitle">
+                <h1>Turbo Energy Machine Report</h1>
+                <p>
+                  Date range: {reportFrom || "Not selected"} to {reportTo || "Not selected"} | Machines: {reportMachines.length > 0 ? reportMachines.join(", ") : "All machines"}
+                </p>
+                <p>Generated by: {username} | Generated on: {new Date().toLocaleDateString()} {new Date().toLocaleTimeString()}</p>
+              </div>
 
-    <button className="pillButton" onClick={generateReport}>
-      Generate Report
-    </button>
-  </div>
+              <div className="tableWrap reportTableWrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Fleet</th>
+                      <th>Action</th>
+                      <th>Field</th>
+                      <th>Old</th>
+                      <th>New</th>
+                      <th>Notes</th>
+                      <th>Actor</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reportData.length === 0 ? (
+                      <tr>
+                        <td colSpan={8}>No report generated yet.</td>
+                      </tr>
+                    ) : (
+                      reportData.map((item) => (
+                        <tr key={item.id}>
+                          <td>{formatHistoryDate(item.created_at)}</td>
+                          <td>{item.fleet || "-"}</td>
+                          <td>{item.action || "-"}</td>
+                          <td>{item.field || "-"}</td>
+                          <td>{item.old_value || "-"}</td>
+                          <td>{item.new_value || "-"}</td>
+                          <td>{item.notes || "-"}</td>
+                          <td>{item.actor || "-"}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
 
-  <div className="tableWrap">
-    <table>
-      <thead>
-        <tr>
-          <th>Date</th>
-          <th>Fleet</th>
-          <th>Action</th>
-          <th>Field</th>
-          <th>Old</th>
-          <th>New</th>
-          <th>Notes</th>
-        </tr>
-      </thead>
-      <tbody>
-        {reportData.length === 0 ? (
-          <tr>
-            <td colSpan={7}>No report generated yet.</td>
-          </tr>
-        ) : (
-          reportData.map((item) => (
-            <tr key={item.id}>
-              <td>{formatHistoryDate(item.created_at)}</td>
-              <td>{item.fleet}</td>
-              <td>{item.action}</td>
-              <td>{item.field}</td>
-              <td>{item.old_value}</td>
-              <td>{item.new_value}</td>
-              <td>{item.notes}</td>
-            </tr>
-          ))
-        )}
-      </tbody>
-    </table>
-  </div>
-</section>
-            <section className="panel">
+            <section className="panel noPrint">
               <div className="sectionTitleRow">
                 <h2>Availability by Machine Type</h2>
                 <span>% Available</span>
@@ -1005,54 +1021,31 @@ const generateReport = async () => {
 
               <div className="chartPanel">
                 <div className="chartGridLines">
-                  <div>
-                    <span>100%</span>
-                  </div>
-                  <div>
-                    <span>80%</span>
-                  </div>
-                  <div>
-                    <span>60%</span>
-                  </div>
-                  <div>
-                    <span>40%</span>
-                  </div>
-                  <div>
-                    <span>20%</span>
-                  </div>
+                  <div><span>100%</span></div>
+                  <div><span>80%</span></div>
+                  <div><span>60%</span></div>
+                  <div><span>40%</span></div>
+                  <div><span>20%</span></div>
                 </div>
 
                 <div className="barsArea">
                   {groupedMachineTypeData.map((item, index) => (
                     <div key={item.type} className="barGroup">
                       <div className="barValue">{item.availability}%</div>
-                      <div
-                        className={`bar ${
-                          index % 4 === 3 ? "highlightBar" : ""
-                        }`}
-                        style={{
-                          height: `${Math.max(item.availability * 1.7, 18)}px`,
-                        }}
-                      />
+                      <div className={`bar ${index % 4 === 3 ? "highlightBar" : ""}`} style={{ height: `${Math.max(item.availability * 1.7, 18)}px` }} />
                       <div className="barLabel">{item.type}</div>
                     </div>
                   ))}
                 </div>
               </div>
 
-              <p className="footNote">
-                Major repair units are excluded from the machine type
-                availability graph.
-              </p>
+              <p className="footNote">Major repair units are excluded from the machine type availability graph.</p>
             </section>
 
-            <section className="panel">
+            <section className="panel noPrint">
               <div className="sectionHeading">
                 <h2>Department Availability</h2>
-                <p>
-                  Availability percentage by department with major repairs
-                  excluded.
-                </p>
+                <p>Availability percentage by department with major repairs excluded.</p>
               </div>
 
               <div className="departmentGrid">
@@ -1063,10 +1056,7 @@ const generateReport = async () => {
                       <span>{item.percent}%</span>
                     </div>
                     <div className="departmentBarTrack">
-                      <div
-                        className="departmentBarFill"
-                        style={{ width: `${item.percent}%` }}
-                      />
+                      <div className="departmentBarFill" style={{ width: `${item.percent}%` }} />
                     </div>
                     <div className="departmentMeta">
                       <span>Total: {item.total}</span>
@@ -1078,20 +1068,15 @@ const generateReport = async () => {
               </div>
             </section>
 
-            <section className="panel" id="major-repairs">
+            <section className="panel noPrint" id="major-repairs">
               <div className="sectionHeading">
                 <h2>Machines on Major Repairs</h2>
-                <p>
-                  These units are removed from the main availability percentage.
-                </p>
+                <p>These units are removed from the main availability percentage.</p>
               </div>
 
               <div className="majorRepairSummary">
                 <div className="majorBadge">{majorRepairsMachines}</div>
-                <div>
-                  <strong>{majorRepairsMachines}</strong> unit(s) on major
-                  repair
-                </div>
+                <div><strong>{majorRepairsMachines}</strong> unit(s) on major repair</div>
               </div>
 
               <div className="tableWrap">
@@ -1109,36 +1094,19 @@ const generateReport = async () => {
                   </thead>
                   <tbody>
                     {majorRepairsList.length === 0 ? (
-                      <tr>
-                        <td colSpan={isAdmin ? 7 : 6}>
-                          No machines on major repair.
-                        </td>
-                      </tr>
+                      <tr><td colSpan={isAdmin ? 7 : 6}>No machines on major repair.</td></tr>
                     ) : (
                       majorRepairsList.map((machine) => (
-                        <tr key={machine.fleet}>
+                        <tr key={machine.fleet} className="clickableRow" onClick={() => setSelectedFleet(machine.fleet)}>
                           <td>{machine.fleet}</td>
                           <td>{machine.machineType}</td>
                           <td>{machine.department}</td>
-                          <td>
-                            {machine.repairReason ||
-                              machine.downtimeReason ||
-                              "-"}
-                          </td>
+                          <td>{machine.repairReason || machine.downtimeReason || "-"}</td>
                           <td>{machine.sparesEta || "-"}</td>
-                          <td>
-                            <span className="statusPill statusMajor">
-                              Major Repair
-                            </span>
-                          </td>
+                          <td><span className="statusPill statusMajor">Major Repair</span></td>
                           {isAdmin && (
-                            <td>
-                              <button
-                                className="miniAction"
-                                onClick={() =>
-                                  void setMajorRepair(machine.fleet, false)
-                                }
-                              >
+                            <td onClick={(e) => e.stopPropagation()}>
+                              <button className="miniAction" onClick={() => void setMajorRepair(machine.fleet, false)}>
                                 Return to main list
                               </button>
                             </td>
@@ -1152,109 +1120,39 @@ const generateReport = async () => {
             </section>
 
             {selectedMachine && (
-              <section className="panel">
+              <section className="panel noPrint">
                 <div className="sectionHeading">
                   <h2>Selected Machine Detail</h2>
-                  <p>
-                    Full machine detail, status, hours, reasons, and
-                    availability history.
-                  </p>
+                  <p>Full machine detail, status, hours, reasons, and availability history.</p>
                 </div>
 
                 <div className="detailGrid">
                   <div className="detailCard">
                     <h3>{selectedMachine.fleet}</h3>
                     <p>{selectedMachine.machineType}</p>
-                    <span
-                      className={`statusPill ${getStatusClass(
-                        selectedMachine.status,
-                        selectedMachine.majorRepair
-                      )}`}
-                    >
-                      {selectedMachine.majorRepair
-                        ? "Major Repair"
-                        : selectedMachine.status}
+                    <span className={`statusPill ${getStatusClass(selectedMachine.status, selectedMachine.majorRepair)}`}>
+                      {selectedMachine.majorRepair ? "Major Repair" : selectedMachine.status}
                     </span>
                   </div>
-
-                  <div className="detailMini">
-                    <label>Availability</label>
-                    <strong>{selectedMachine.availability}%</strong>
-                  </div>
-
-                  <div className="detailMini">
-                    <label>Online / Offline</label>
-                    <strong>{selectedMachine.onlineStatus}</strong>
-                  </div>
-
-                  <div className="detailMini">
-                    <label>Hours Worked</label>
-                    <strong>{selectedMachine.hoursWorked}</strong>
-                  </div>
-
-                  <div className="detailMini">
-                    <label>Hours Down</label>
-                    <strong>{selectedMachine.hoursDown}</strong>
-                  </div>
-
-                  <div className="detailMini">
-                    <label>Department</label>
-                    <strong>{selectedMachine.department}</strong>
-                  </div>
-
-                  <div className="detailMini">
-                    <label>Location</label>
-                    <strong>{selectedMachine.location}</strong>
-                  </div>
+                  <DetailMini label="Availability" value={`${selectedMachine.availability}%`} />
+                  <DetailMini label="Online / Offline" value={selectedMachine.onlineStatus} />
+                  <DetailMini label="Hours Worked" value={String(selectedMachine.hoursWorked)} />
+                  <DetailMini label="Hours Down" value={String(selectedMachine.hoursDown)} />
+                  <DetailMini label="Department" value={selectedMachine.department} />
+                  <DetailMini label="Location" value={selectedMachine.location} />
 
                   <div className="detailWide">
                     <label>Repair / Downtime Reason</label>
-                    <strong>
-                      {selectedMachine.downtimeReason ||
-                        selectedMachine.repairReason ||
-                        "-"}
-                    </strong>
+                    <strong>{selectedMachine.downtimeReason || selectedMachine.repairReason || "-"}</strong>
                   </div>
 
                   <div className="detailWide">
                     <label>Availability History</label>
                     <div className="historyStack compactHistory">
                       {selectedMachineHistory.length === 0 ? (
-                        <div className="mutedCard">
-                          No history yet for this machine.
-                        </div>
+                        <div className="mutedCard">No history yet for this machine.</div>
                       ) : (
-                        selectedMachineHistory.map((item) => (
-                          <div key={item.id} className="historyCard">
-                            <div className="historyTop">
-                              <strong>{item.action}</strong>
-                              <span>{formatHistoryDate(item.created_at)}</span>
-                            </div>
-                            <div className="historyMeta">
-                              <span>
-                                <strong>User:</strong> {item.actor || "-"}
-                              </span>
-                              {item.field ? (
-                                <span>
-                                  <strong>Field:</strong> {item.field}
-                                </span>
-                              ) : null}
-                            </div>
-                            {(item.old_value || item.new_value) && (
-                              <div className="historyChange">
-                                <span>
-                                  <strong>Old:</strong> {item.old_value || "-"}
-                                </span>
-                                <span>
-                                  <strong>New:</strong> {item.new_value || "-"}
-                                </span>
-                              </div>
-                            )}
-                            {item.notes ? (
-                              <div className="historyNotes">{item.notes}</div>
-                            ) : null}
-                          </div>
-                        ))
+                        selectedMachineHistory.map((item) => <HistoryCard key={item.id} item={item} />)
                       )}
                     </div>
                   </div>
@@ -1262,7 +1160,7 @@ const generateReport = async () => {
               </section>
             )}
 
-            <section className="panel">
+            <section className="panel noPrint">
               <div className="sectionHeading">
                 <h2>Top Machine Summary</h2>
                 <p>Quick summary of active machines only.</p>
@@ -1281,19 +1179,10 @@ const generateReport = async () => {
                   </thead>
                   <tbody>
                     {topSummary.map((machine) => (
-                      <tr key={machine.fleet}>
+                      <tr key={machine.fleet} className="clickableRow" onClick={() => setSelectedFleet(machine.fleet)}>
                         <td>{machine.fleet}</td>
                         <td>{machine.machineType}</td>
-                        <td>
-                          <span
-                            className={`statusPill ${getStatusClass(
-                              machine.status,
-                              machine.majorRepair
-                            )}`}
-                          >
-                            {machine.status}
-                          </span>
-                        </td>
+                        <td><span className={`statusPill ${getStatusClass(machine.status, machine.majorRepair)}`}>{machine.status}</span></td>
                         <td>{machine.location}</td>
                         <td>{machine.availability}%</td>
                       </tr>
@@ -1304,7 +1193,7 @@ const generateReport = async () => {
             </section>
           </section>
 
-          <aside className="rightColumn">
+          <aside className="rightColumn noPrint">
             <section className="panel">
               <div className="sectionHeading">
                 <h2>Recent Activity</h2>
@@ -1315,42 +1204,7 @@ const generateReport = async () => {
                 {historyItems.length === 0 ? (
                   <div className="mutedCard">No history yet.</div>
                 ) : (
-                  historyItems.slice(0, 12).map((item) => (
-                    <div key={item.id} className="historyCard">
-                      <div className="historyTop">
-                        <strong>{item.action}</strong>
-                        <span>{formatHistoryDate(item.created_at)}</span>
-                      </div>
-                      <div className="historyMeta">
-                        <span>
-                          <strong>User:</strong> {item.actor || "-"}
-                        </span>
-                        {item.fleet ? (
-                          <span>
-                            <strong>Fleet:</strong> {item.fleet}
-                          </span>
-                        ) : null}
-                        {item.field ? (
-                          <span>
-                            <strong>Field:</strong> {item.field}
-                          </span>
-                        ) : null}
-                      </div>
-                      {(item.old_value || item.new_value) && (
-                        <div className="historyChange">
-                          <span>
-                            <strong>Old:</strong> {item.old_value || "-"}
-                          </span>
-                          <span>
-                            <strong>New:</strong> {item.new_value || "-"}
-                          </span>
-                        </div>
-                      )}
-                      {item.notes ? (
-                        <div className="historyNotes">{item.notes}</div>
-                      ) : null}
-                    </div>
-                  ))
+                  historyItems.slice(0, 12).map((item) => <HistoryCard key={item.id} item={item} />)
                 )}
               </div>
             </section>
@@ -1362,25 +1216,13 @@ const generateReport = async () => {
               </div>
 
               <div className="controlsRow">
-                <select
-                  value={selectedType}
-                  onChange={(e) => setSelectedType(e.target.value)}
-                  className="selectInput"
-                >
+                <select value={selectedType} onChange={(e) => setSelectedType(e.target.value)} className="selectInput">
                   {typeOptions.map((option) => (
-                    <option key={option} value={option}>
-                      {option === "ALL" ? "All Machines" : option}
-                    </option>
+                    <option key={option} value={option}>{option === "ALL" ? "All Machines" : option}</option>
                   ))}
                 </select>
 
-                <select
-                  value={registerFilter}
-                  onChange={(e) =>
-                    setRegisterFilter(e.target.value as RegisterFilter)
-                  }
-                  className="selectInput"
-                >
+                <select value={registerFilter} onChange={(e) => setRegisterFilter(e.target.value as RegisterFilter)} className="selectInput">
                   <option value="ALL">All Statuses</option>
                   <option value="AVAILABLE">Available Only</option>
                   <option value="DOWN">Repairs / Down</option>
@@ -1389,20 +1231,10 @@ const generateReport = async () => {
 
                 <div className="searchWrap">
                   <span>⌕</span>
-                  <input
-                    type="text"
-                    placeholder="Type fleet number or type..."
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                  />
+                  <input type="text" placeholder="Type fleet number or type..." value={search} onChange={(e) => setSearch(e.target.value)} />
                 </div>
 
-                <button
-                  className="pillButton solidButton"
-                  onClick={() => void handleRefresh()}
-                >
-                  {loadingData ? "Refreshing..." : "Refresh data"}
-                </button>
+                <button className="pillButton solidButton" onClick={() => void handleRefresh()}>{loadingData ? "Refreshing..." : "Refresh data"}</button>
               </div>
 
               <div className="tableWrap">
@@ -1426,36 +1258,17 @@ const generateReport = async () => {
                     {filteredMachines.map((machine) => (
                       <tr
                         key={`${machine.fleet}-${machine.updated}`}
-                        className={
-                          selectedFleet === machine.fleet
-                            ? "selectedRow"
-                            : "clickableRow"
-                        }
+                        className={selectedFleet === machine.fleet ? "selectedRow" : "clickableRow"}
                         onClick={() => setSelectedFleet(machine.fleet)}
                       >
                         <td>{machine.fleet}</td>
                         <td>{machine.machineType}</td>
-                        <td>
-                          <span
-                            className={`statusPill ${getStatusClass(
-                              machine.status,
-                              machine.majorRepair
-                            )}`}
-                          >
-                            {machine.majorRepair
-                              ? "Major Repair"
-                              : machine.status}
-                          </span>
-                        </td>
+                        <td><span className={`statusPill ${getStatusClass(machine.status, machine.majorRepair)}`}>{machine.majorRepair ? "Major Repair" : machine.status}</span></td>
                         <td>{machine.availability}%</td>
                         <td>{machine.hoursWorked}</td>
                         <td>{machine.hoursDown}</td>
                         <td>{machine.onlineStatus}</td>
-                        <td>
-                          {machine.downtimeReason ||
-                            machine.repairReason ||
-                            "-"}
-                        </td>
+                        <td>{machine.downtimeReason || machine.repairReason || "-"}</td>
                         <td>{machine.department}</td>
                         <td>{machine.location}</td>
                         <td>{machine.updated}</td>
@@ -1467,258 +1280,9 @@ const generateReport = async () => {
 
               <div className="bottomLine">
                 <span>Turbo Energy - Machine Availability Dashboard</span>
-                <span>
-                  Last updated: {new Date().toLocaleDateString()}{" "}
-                  {new Date().toLocaleTimeString()}
-                </span>
+                <span>Last updated: {new Date().toLocaleDateString()} {new Date().toLocaleTimeString()}</span>
               </div>
             </section>
-
-            {isAdmin && (
-              <section className="panel">
-                <div className="sectionHeading">
-                  <h2>Admin Machine Controls</h2>
-                  <p>
-                    Edit hours, online status, downtime reason, department, and
-                    repairs.
-                  </p>
-                </div>
-
-                <div className="adminList">
-                  {machines.map((machine) => (
-                    <div key={machine.fleet} className="adminCard">
-                      <div className="adminTop">
-                        <div>
-                          <strong>{machine.fleet}</strong> -{" "}
-                          {machine.machineType}
-                        </div>
-                        <span
-                          className={`statusPill ${getStatusClass(
-                            machine.status,
-                            machine.majorRepair
-                          )}`}
-                        >
-                          {machine.majorRepair
-                            ? "Major Repair"
-                            : machine.status}
-                        </span>
-                      </div>
-
-                      <div className="adminGrid">
-                        <div>
-                          <label>Department</label>
-                          <select
-                            value={machine.department}
-                            onChange={(e) =>
-                              void updateMachineField(
-                                machine.fleet,
-                                "department",
-                                e.target.value
-                              )
-                            }
-                            className="selectInput"
-                          >
-                            {departments.map((dep) => (
-                              <option key={dep} value={dep}>
-                                {dep}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-
-                        <div>
-                          <label>Status</label>
-                          <select
-                            value={
-                              machine.majorRepair
-                                ? "Major Repair"
-                                : machine.status
-                            }
-                            onChange={(e) => {
-                              const value = e.target.value;
-                              if (value === "Major Repair") {
-                                void setMajorRepair(machine.fleet, true);
-                              } else {
-                                void updateMachineField(
-                                  machine.fleet,
-                                  "status",
-                                  value
-                                );
-                                if (machine.majorRepair) {
-                                  void setMajorRepair(machine.fleet, false);
-                                }
-                              }
-                            }}
-                            className="selectInput"
-                          >
-                            <option value="Available">Available</option>
-                            <option value="Repair">Repair</option>
-                            <option value="Maintenance">Maintenance</option>
-                            <option value="Down">Down</option>
-                            <option value="Major Repair">Major Repair</option>
-                          </select>
-                        </div>
-
-                        <div>
-                          <label>Availability %</label>
-                          <input
-                            className="textInput"
-                            type="number"
-                            value={machine.availability}
-                            onChange={(e) =>
-                              void updateMachineField(
-                                machine.fleet,
-                                "availability",
-                                Number(e.target.value || 0)
-                              )
-                            }
-                          />
-                        </div>
-
-                        <div>
-                          <label>Hours Worked</label>
-                          <input
-                            className="textInput"
-                            type="number"
-                            value={machine.hoursWorked}
-                            onChange={(e) =>
-                              void updateMachineField(
-                                machine.fleet,
-                                "hoursWorked",
-                                Number(e.target.value || 0)
-                              )
-                            }
-                          />
-                        </div>
-
-                        <div>
-                          <label>Hours Down</label>
-                          <input
-                            className="textInput"
-                            type="number"
-                            value={machine.hoursDown}
-                            onChange={(e) =>
-                              void updateMachineField(
-                                machine.fleet,
-                                "hoursDown",
-                                Number(e.target.value || 0)
-                              )
-                            }
-                          />
-                        </div>
-
-                        <div>
-                          <label>Online / Offline</label>
-                          <select
-                            value={machine.onlineStatus}
-                            onChange={(e) =>
-                              void updateMachineField(
-                                machine.fleet,
-                                "onlineStatus",
-                                e.target.value
-                              )
-                            }
-                            className="selectInput"
-                          >
-                            {onlineStatuses.map((item) => (
-                              <option key={item} value={item}>
-                                {item}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-
-                        <div>
-                          <label>Downtime Reason</label>
-                          <input
-                            className="textInput"
-                            type="text"
-                            value={machine.downtimeReason}
-                            onChange={(e) =>
-                              void updateMachineField(
-                                machine.fleet,
-                                "downtimeReason",
-                                e.target.value
-                              )
-                            }
-                          />
-                        </div>
-
-                        <div>
-                          <label>Repair Reason</label>
-                          <input
-                            className="textInput"
-                            type="text"
-                            value={machine.repairReason}
-                            onChange={(e) =>
-                              void updateMachineField(
-                                machine.fleet,
-                                "repairReason",
-                                e.target.value
-                              )
-                            }
-                          />
-                        </div>
-
-                        <div>
-                          <label>Spares ETA</label>
-                          <input
-                            className="textInput"
-                            type="text"
-                            value={machine.sparesEta}
-                            onChange={(e) =>
-                              void updateMachineField(
-                                machine.fleet,
-                                "sparesEta",
-                                e.target.value
-                              )
-                            }
-                          />
-                        </div>
-
-                        <div>
-                          <label>Location</label>
-                          <input
-                            className="textInput"
-                            type="text"
-                            value={machine.location}
-                            onChange={(e) =>
-                              void updateMachineField(
-                                machine.fleet,
-                                "location",
-                                e.target.value
-                              )
-                            }
-                          />
-                        </div>
-                      </div>
-
-                      <div className="adminActions">
-                        {!machine.majorRepair ? (
-                          <button
-                            className="miniAction orangeMini"
-                            onClick={() =>
-                              void setMajorRepair(machine.fleet, true)
-                            }
-                          >
-                            Move to major repair
-                          </button>
-                        ) : (
-                          <button
-                            className="miniAction"
-                            onClick={() =>
-                              void setMajorRepair(machine.fleet, false)
-                            }
-                          >
-                            Remove from major repair
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
 
             {isAdmin && sheetNames.length > 0 && (
               <section className="sheetTabsPanel">
@@ -1729,13 +1293,7 @@ const generateReport = async () => {
 
                 <div className="sheetTabs">
                   {sheetNames.map((name) => (
-                    <button
-                      key={name}
-                      className={`sheetTab ${
-                        activeSheet === name ? "activeSheetTab" : ""
-                      }`}
-                      onClick={() => void loadSheetByName(name)}
-                    >
+                    <button key={name} className={`sheetTab ${activeSheet === name ? "activeSheetTab" : ""}`} onClick={() => void loadSheetByName(name)}>
                       {name}
                     </button>
                   ))}
@@ -1751,16 +1309,8 @@ const generateReport = async () => {
           min-height: 100vh;
           color: #f3f7ff;
           background:
-            radial-gradient(
-              circle at top left,
-              rgba(90, 130, 255, 0.18),
-              transparent 24%
-            ),
-            radial-gradient(
-              circle at top right,
-              rgba(242, 154, 31, 0.14),
-              transparent 22%
-            ),
+            radial-gradient(circle at top left, rgba(90, 130, 255, 0.18), transparent 24%),
+            radial-gradient(circle at top right, rgba(242, 154, 31, 0.14), transparent 22%),
             linear-gradient(180deg, #091c43 0%, #081733 100%);
           font-family: Arial, Helvetica, sans-serif;
         }
@@ -1808,11 +1358,7 @@ const generateReport = async () => {
           gap: 18px;
           align-items: center;
           padding: 14px 18px;
-          background: linear-gradient(
-            180deg,
-            rgba(23, 50, 95, 0.96),
-            rgba(13, 34, 74, 0.96)
-          );
+          background: linear-gradient(180deg, rgba(23, 50, 95, 0.96), rgba(13, 34, 74, 0.96));
           border: 1px solid rgba(255, 255, 255, 0.09);
           border-radius: 18px;
           box-shadow: 0 18px 40px rgba(0, 0, 0, 0.24);
@@ -1836,23 +1382,11 @@ const generateReport = async () => {
           letter-spacing: 1px;
         }
 
-        .titleWrap {
-          text-align: center;
-        }
+        .titleWrap { text-align: center; }
+        .titleWrap h1 { margin: 0; font-size: 20px; font-weight: 800; }
+        .titleWrap p { margin: 6px 0 0; font-size: 14px; color: #c8d4ea; }
 
-        .titleWrap h1 {
-          margin: 0;
-          font-size: 20px;
-          font-weight: 800;
-        }
-
-        .titleWrap p {
-          margin: 6px 0 0;
-          font-size: 14px;
-          color: #c8d4ea;
-        }
-
-        .topActions {
+        .topActions, .panelButtons, .reportActions {
           display: flex;
           gap: 12px;
           flex-wrap: wrap;
@@ -1870,14 +1404,13 @@ const generateReport = async () => {
           cursor: pointer;
         }
 
-        .primaryPill {
+        .primaryPill, .orangeButton, .orangeMini, .activeSheetTab {
           background: linear-gradient(180deg, #ffb24c, #f29a1f);
-          box-shadow: 0 10px 22px rgba(242, 154, 31, 0.26);
+          color: white;
+          border: none;
         }
 
-        .solidButton {
-          background: rgba(14, 35, 74, 0.95);
-        }
+        .solidButton { background: rgba(14, 35, 74, 0.95); }
 
         .dashboardGrid {
           display: grid;
@@ -1887,8 +1420,7 @@ const generateReport = async () => {
           min-width: 0;
         }
 
-        .leftColumn,
-        .rightColumn {
+        .leftColumn, .rightColumn {
           display: flex;
           flex-direction: column;
           gap: 16px;
@@ -1901,11 +1433,7 @@ const generateReport = async () => {
           gap: 12px;
         }
 
-        .panel,
-        .tableWrap,
-        .chartPanel {
-          min-width: 0;
-        }
+        .panel, .tableWrap, .chartPanel { min-width: 0; }
 
         .kpiCard {
           background: rgba(255, 255, 255, 0.97);
@@ -1920,9 +1448,9 @@ const generateReport = async () => {
           min-width: 0;
         }
 
-        .clickableCard {
-          cursor: pointer;
-        }
+        .clickableCard, .clickableRow { cursor: pointer; }
+        .clickableRow:hover { background: rgba(255, 255, 255, 0.06); }
+        .selectedRow { background: rgba(255, 177, 75, 0.16); cursor: pointer; }
 
         .kpiIcon {
           width: 52px;
@@ -1935,38 +1463,19 @@ const generateReport = async () => {
           font-size: 24px;
         }
 
-        .kpiText h4 {
-          margin: 0 0 6px;
-          font-size: 13px;
-          font-weight: 800;
-        }
+        .kpiText h4 { margin: 0 0 6px; font-size: 13px; font-weight: 800; }
+        .kpiValue { margin: 0 0 8px; font-size: 22px; line-height: 1; font-weight: 900; }
+        .kpiText p { margin: 0; font-size: 13px; color: #5f7196; }
 
-        .kpiValue {
-          margin: 0 0 8px;
-          font-size: 22px;
-          line-height: 1;
-          font-weight: 900;
-        }
-
-        .kpiText p {
-          margin: 0;
-          font-size: 13px;
-          color: #5f7196;
-        }
-
-        .panel {
-          background: linear-gradient(
-            180deg,
-            rgba(17, 42, 87, 0.92),
-            rgba(10, 29, 63, 0.94)
-          );
+        .panel, .sheetTabsPanel {
+          background: linear-gradient(180deg, rgba(17, 42, 87, 0.92), rgba(10, 29, 63, 0.94));
           border: 1px solid rgba(255, 255, 255, 0.1);
           border-radius: 22px;
           padding: 18px;
           box-shadow: 0 18px 40px rgba(0, 0, 0, 0.22);
         }
 
-        .panelHeader {
+        .panelHeader, .reportHeader {
           display: flex;
           justify-content: space-between;
           gap: 12px;
@@ -1974,25 +1483,16 @@ const generateReport = async () => {
           margin-bottom: 14px;
         }
 
-        .panelHeader h2,
-        .sectionHeading h2,
-        .sectionTitleRow h2 {
+        .panelHeader h2, .sectionHeading h2, .sectionTitleRow h2 {
           margin: 0;
           font-size: 18px;
           font-weight: 900;
         }
 
-        .panelHeader p,
-        .sectionHeading p {
+        .panelHeader p, .sectionHeading p {
           margin: 6px 0 0;
           color: #c8d4ea;
           font-size: 14px;
-        }
-
-        .panelButtons {
-          display: flex;
-          gap: 10px;
-          flex-wrap: wrap;
         }
 
         .actionButton {
@@ -2004,30 +1504,23 @@ const generateReport = async () => {
           cursor: pointer;
         }
 
-        .orangeButton {
-          background: linear-gradient(180deg, #ffb24c, #f29a1f);
-          color: white;
-        }
+        .whiteButton { background: rgba(255, 255, 255, 0.97); color: #17325f; }
 
-        .whiteButton {
-          background: rgba(255, 255, 255, 0.97);
-          color: #17325f;
-        }
-
-        .uploadArea {
+        .uploadArea, .infoBox {
           border: 1px solid rgba(255, 255, 255, 0.12);
           border-radius: 14px;
           background: rgba(255, 255, 255, 0.03);
           padding: 14px;
+        }
+
+        .uploadArea {
           display: flex;
           align-items: center;
           gap: 12px;
           flex-wrap: wrap;
         }
 
-        .hiddenInput {
-          display: none;
-        }
+        .hiddenInput { display: none; }
 
         .filePicker {
           display: inline-flex;
@@ -2042,23 +1535,8 @@ const generateReport = async () => {
           cursor: pointer;
         }
 
-        .fileName {
-          color: #d9e4f7;
-          font-size: 14px;
-          font-weight: 700;
-          word-break: break-word;
-        }
-
-        .infoBox {
-          margin-top: 12px;
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          border-radius: 14px;
-          padding: 14px;
-          background: rgba(255, 255, 255, 0.03);
-          color: #c8d4ea;
-          font-size: 14px;
-          line-height: 1.45;
-        }
+        .fileName { color: #d9e4f7; font-size: 14px; font-weight: 700; word-break: break-word; }
+        .infoBox { margin-top: 12px; color: #c8d4ea; font-size: 14px; line-height: 1.45; }
 
         .sectionTitleRow {
           display: flex;
@@ -2068,10 +1546,7 @@ const generateReport = async () => {
           margin-bottom: 12px;
         }
 
-        .sectionTitleRow span {
-          font-size: 14px;
-          font-weight: 800;
-        }
+        .sectionTitleRow span { font-size: 14px; font-weight: 800; }
 
         .chartPanel {
           position: relative;
@@ -2079,11 +1554,7 @@ const generateReport = async () => {
           border: 1px solid rgba(255, 255, 255, 0.1);
           border-radius: 16px;
           padding: 20px 20px 16px 56px;
-          background: linear-gradient(
-            180deg,
-            rgba(255, 255, 255, 0.03),
-            rgba(255, 255, 255, 0.02)
-          );
+          background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.02));
           overflow-x: auto;
           overflow-y: hidden;
           max-width: 100%;
@@ -2101,19 +1572,8 @@ const generateReport = async () => {
           pointer-events: none;
         }
 
-        .chartGridLines div {
-          position: relative;
-          border-top: 1px dashed rgba(255, 255, 255, 0.12);
-        }
-
-        .chartGridLines span {
-          position: absolute;
-          left: -54px;
-          top: -8px;
-          font-size: 12px;
-          font-weight: 700;
-          color: #c8d4ea;
-        }
+        .chartGridLines div { position: relative; border-top: 1px dashed rgba(255, 255, 255, 0.12); }
+        .chartGridLines span { position: absolute; left: -54px; top: -8px; font-size: 12px; font-weight: 700; color: #c8d4ea; }
 
         .barsArea {
           position: relative;
@@ -2139,56 +1599,20 @@ const generateReport = async () => {
           gap: 8px;
         }
 
-        .barValue {
-          font-size: 15px;
-          font-weight: 900;
-        }
+        .barValue { font-size: 15px; font-weight: 900; }
+        .bar { width: 42px; border-radius: 14px 14px 4px 4px; background: linear-gradient(180deg, rgba(225, 235, 255, 0.98), rgba(169, 189, 235, 0.92)); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 10px 18px rgba(0, 0, 0, 0.16); }
+        .highlightBar { background: linear-gradient(180deg, #bed6ff, #6f9fff); }
+        .barLabel { font-size: 12px; font-weight: 900; color: #eaf0ff; text-align: center; white-space: nowrap; }
+        .footNote { margin: 12px 0 0; font-size: 14px; color: #c8d4ea; }
+        .sectionHeading { margin-bottom: 12px; }
 
-        .bar {
-          width: 42px;
-          border-radius: 14px 14px 4px 4px;
-          background: linear-gradient(
-            180deg,
-            rgba(225, 235, 255, 0.98),
-            rgba(169, 189, 235, 0.92)
-          );
-          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45),
-            0 10px 18px rgba(0, 0, 0, 0.16);
-        }
-
-        .highlightBar {
-          background: linear-gradient(180deg, #bed6ff, #6f9fff);
-        }
-
-        .barLabel {
-          font-size: 12px;
-          font-weight: 900;
-          color: #eaf0ff;
-          text-align: center;
-          white-space: nowrap;
-        }
-
-        .footNote {
-          margin: 12px 0 0;
-          font-size: 14px;
-          color: #c8d4ea;
-        }
-
-        .sectionHeading {
-          margin-bottom: 12px;
-        }
-
-        .departmentGrid,
-        .detailGrid {
+        .departmentGrid, .detailGrid {
           display: grid;
           grid-template-columns: repeat(2, minmax(0, 1fr));
           gap: 12px;
         }
 
-        .departmentCard,
-        .detailCard,
-        .detailMini,
-        .detailWide {
+        .departmentCard, .detailCard, .detailMini, .detailWide {
           border: 1px solid rgba(255, 255, 255, 0.1);
           border-radius: 16px;
           padding: 14px;
@@ -2196,34 +1620,11 @@ const generateReport = async () => {
           min-width: 0;
         }
 
-        .detailCard h3,
-        .departmentHead h3 {
-          margin: 0 0 4px;
-          font-size: 16px;
-        }
-
-        .detailCard p {
-          margin: 0 0 10px;
-          color: #c8d4ea;
-        }
-
-        .detailMini label,
-        .detailWide label {
-          display: block;
-          margin-bottom: 8px;
-          font-size: 12px;
-          color: #cfdbf4;
-          font-weight: 700;
-        }
-
-        .detailMini strong,
-        .detailWide strong {
-          font-size: 16px;
-        }
-
-        .detailWide {
-          grid-column: 1 / -1;
-        }
+        .detailCard h3, .departmentHead h3 { margin: 0 0 4px; font-size: 16px; }
+        .detailCard p { margin: 0 0 10px; color: #c8d4ea; }
+        .detailMini label, .detailWide label { display: block; margin-bottom: 8px; font-size: 12px; color: #cfdbf4; font-weight: 700; }
+        .detailMini strong, .detailWide strong { font-size: 16px; }
+        .detailWide { grid-column: 1 / -1; }
 
         .departmentHead {
           display: flex;
@@ -2233,53 +1634,13 @@ const generateReport = async () => {
           margin-bottom: 10px;
         }
 
-        .departmentHead span {
-          font-size: 16px;
-          font-weight: 900;
-          color: #ffcf67;
-        }
+        .departmentHead span { font-size: 16px; font-weight: 900; color: #ffcf67; }
+        .departmentBarTrack { height: 10px; border-radius: 999px; background: rgba(255, 255, 255, 0.1); overflow: hidden; margin-bottom: 10px; }
+        .departmentBarFill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #7db2ff, #4f8cff); }
+        .departmentMeta { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; color: #cfdbf4; }
 
-        .departmentBarTrack {
-          height: 10px;
-          border-radius: 999px;
-          background: rgba(255, 255, 255, 0.1);
-          overflow: hidden;
-          margin-bottom: 10px;
-        }
-
-        .departmentBarFill {
-          height: 100%;
-          border-radius: 999px;
-          background: linear-gradient(90deg, #7db2ff, #4f8cff);
-        }
-
-        .departmentMeta {
-          display: flex;
-          gap: 10px;
-          flex-wrap: wrap;
-          font-size: 12px;
-          color: #cfdbf4;
-        }
-
-        .majorRepairSummary {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          margin-bottom: 12px;
-        }
-
-        .majorBadge {
-          width: 44px;
-          height: 44px;
-          border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          background: rgba(255, 177, 75, 0.18);
-          color: #ffcf67;
-          font-weight: 900;
-          font-size: 18px;
-        }
+        .majorRepairSummary { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+        .majorBadge { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(255, 177, 75, 0.18); color: #ffcf67; font-weight: 900; font-size: 18px; }
 
         .tableWrap {
           overflow-x: auto;
@@ -2288,165 +1649,33 @@ const generateReport = async () => {
           background: rgba(255, 255, 255, 0.04);
         }
 
-        table {
-          width: 100%;
-          border-collapse: collapse;
-          min-width: 1100px;
-        }
+        table { width: 100%; border-collapse: collapse; min-width: 1100px; }
+        th { background: rgba(255, 255, 255, 0.96); color: #17325f; text-align: left; padding: 12px 14px; font-size: 13px; font-weight: 900; }
+        td { padding: 12px 14px; font-size: 14px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
 
-        th {
-          background: rgba(255, 255, 255, 0.96);
-          color: #17325f;
-          text-align: left;
-          padding: 12px 14px;
-          font-size: 13px;
-          font-weight: 900;
-        }
+        .statusPill { display: inline-flex; align-items: center; justify-content: center; min-width: 92px; border-radius: 999px; padding: 6px 10px; font-size: 12px; font-weight: 900; }
+        .statusAvailable { background: rgba(65, 184, 108, 0.18); color: #52dd84; }
+        .statusRepair { background: rgba(239, 193, 77, 0.18); color: #ffd75d; }
+        .statusDown { background: rgba(201, 72, 96, 0.18); color: #ff7b93; }
+        .statusMajor { background: rgba(255, 177, 75, 0.18); color: #ffcf67; }
 
-        td {
-          padding: 12px 14px;
-          font-size: 14px;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-        }
+        .historyStack { display: flex; flex-direction: column; gap: 12px; }
+        .compactHistory { max-height: 320px; overflow: auto; }
+        .mutedCard { border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; padding: 14px 16px; background: rgba(255, 255, 255, 0.05); color: #e7eeff; font-size: 14px; line-height: 1.45; }
+        .historyCard { border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; padding: 14px 16px; background: rgba(255, 255, 255, 0.04); }
+        .historyTop { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 8px; font-size: 14px; }
+        .historyTop span { color: #cfdbf4; font-size: 12px; font-weight: 700; }
+        .historyMeta, .historyChange { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; color: #dbe5f7; margin-bottom: 6px; }
+        .historyNotes { font-size: 13px; color: #ffffff; }
 
-        .clickableRow {
-          cursor: pointer;
-        }
+        .adminList { display: flex; flex-direction: column; gap: 12px; max-height: 760px; overflow: auto; padding-right: 4px; }
+        .adminListTop { max-height: 620px; }
+        .adminCard { border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; padding: 14px; background: rgba(255, 255, 255, 0.04); }
+        .adminTop { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 12px; }
+        .adminGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+        .adminGrid label { display: block; font-size: 12px; color: #cfdbf4; margin-bottom: 6px; font-weight: 700; }
 
-        .selectedRow {
-          background: rgba(255, 177, 75, 0.16);
-          cursor: pointer;
-        }
-
-        .statusPill {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          min-width: 92px;
-          border-radius: 999px;
-          padding: 6px 10px;
-          font-size: 12px;
-          font-weight: 900;
-        }
-
-        .statusAvailable {
-          background: rgba(65, 184, 108, 0.18);
-          color: #52dd84;
-        }
-
-        .statusRepair {
-          background: rgba(239, 193, 77, 0.18);
-          color: #ffd75d;
-        }
-
-        .statusDown {
-          background: rgba(201, 72, 96, 0.18);
-          color: #ff7b93;
-        }
-
-        .statusMajor {
-          background: rgba(255, 177, 75, 0.18);
-          color: #ffcf67;
-        }
-
-        .historyStack {
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-        }
-
-        .compactHistory {
-          max-height: 320px;
-          overflow: auto;
-        }
-
-        .mutedCard {
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          border-radius: 16px;
-          padding: 14px 16px;
-          background: rgba(255, 255, 255, 0.05);
-          color: #e7eeff;
-          font-size: 14px;
-          line-height: 1.45;
-        }
-
-        .historyCard {
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          border-radius: 16px;
-          padding: 14px 16px;
-          background: rgba(255, 255, 255, 0.04);
-        }
-
-        .historyTop {
-          display: flex;
-          justify-content: space-between;
-          gap: 12px;
-          align-items: center;
-          margin-bottom: 8px;
-          font-size: 14px;
-        }
-
-        .historyTop span {
-          color: #cfdbf4;
-          font-size: 12px;
-          font-weight: 700;
-        }
-
-        .historyMeta,
-        .historyChange {
-          display: flex;
-          gap: 10px;
-          flex-wrap: wrap;
-          font-size: 12px;
-          color: #dbe5f7;
-          margin-bottom: 6px;
-        }
-
-        .historyNotes {
-          font-size: 13px;
-          color: #ffffff;
-        }
-
-        .adminList {
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-          max-height: 760px;
-          overflow: auto;
-          padding-right: 4px;
-        }
-
-        .adminCard {
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          border-radius: 16px;
-          padding: 14px;
-          background: rgba(255, 255, 255, 0.04);
-        }
-
-        .adminTop {
-          display: flex;
-          justify-content: space-between;
-          gap: 12px;
-          align-items: center;
-          margin-bottom: 12px;
-        }
-
-        .adminGrid {
-          display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 10px;
-        }
-
-        .adminGrid label {
-          display: block;
-          font-size: 12px;
-          color: #cfdbf4;
-          margin-bottom: 6px;
-          font-weight: 700;
-        }
-
-        .selectInput,
-        .textInput {
+        .selectInput, .textInput {
           width: 100%;
           border: none;
           outline: none;
@@ -2459,183 +1688,57 @@ const generateReport = async () => {
           min-width: 0;
         }
 
-        .adminActions {
-          margin-top: 12px;
-          display: flex;
-          justify-content: flex-end;
-        }
+        .adminActions { margin-top: 12px; display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+        .miniAction { border: 1px solid rgba(255, 255, 255, 0.14); background: rgba(10, 23, 52, 0.5); color: white; border-radius: 999px; padding: 10px 14px; font-size: 13px; font-weight: 800; cursor: pointer; }
 
-        .miniAction {
-          border: 1px solid rgba(255, 255, 255, 0.14);
-          background: rgba(10, 23, 52, 0.5);
-          color: white;
-          border-radius: 999px;
-          padding: 10px 14px;
-          font-size: 13px;
-          font-weight: 800;
-          cursor: pointer;
-        }
+        .controlsRow, .reportFilters { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+        .reportMachineSelect { min-height: 130px; flex: 1 1 320px; }
+        .reportFilters .textInput { max-width: 190px; }
+        .printTitle { margin-bottom: 12px; }
+        .printTitle h1 { display: none; }
 
-        .orangeMini {
-          background: linear-gradient(180deg, #ffb24c, #f29a1f);
-          border: none;
-        }
+        .searchWrap { flex: 1; min-width: 220px; display: flex; align-items: center; background: white; border-radius: 12px; overflow: hidden; }
+        .searchWrap span { padding: 0 12px; color: #637ba5; font-weight: 900; }
+        .searchWrap input { border: none; outline: none; width: 100%; padding: 12px 14px 12px 0; font-size: 14px; font-weight: 700; color: #17325f; min-width: 0; }
 
-        .controlsRow {
-          display: flex;
-          gap: 10px;
-          flex-wrap: wrap;
-          margin-bottom: 12px;
-        }
+        .bottomLine { display: flex; justify-content: space-between; gap: 12px; margin-top: 10px; font-size: 13px; color: #d8e1f6; flex-wrap: wrap; }
 
-        .searchWrap {
-          flex: 1;
-          min-width: 220px;
-          display: flex;
-          align-items: center;
-          background: white;
-          border-radius: 12px;
-          overflow: hidden;
-        }
-
-        .searchWrap span {
-          padding: 0 12px;
-          color: #637ba5;
-          font-weight: 900;
-        }
-
-        .searchWrap input {
-          border: none;
-          outline: none;
-          width: 100%;
-          padding: 12px 14px 12px 0;
-          font-size: 14px;
-          font-weight: 700;
-          color: #17325f;
-          min-width: 0;
-        }
-
-        .bottomLine {
-          display: flex;
-          justify-content: space-between;
-          gap: 12px;
-          margin-top: 10px;
-          font-size: 13px;
-          color: #d8e1f6;
-          flex-wrap: wrap;
-        }
-
-        .sheetTabsPanel {
-          background: linear-gradient(
-            180deg,
-            rgba(17, 42, 87, 0.92),
-            rgba(10, 29, 63, 0.94)
-          );
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          border-radius: 18px;
-          padding: 16px;
-          box-shadow: 0 18px 40px rgba(0, 0, 0, 0.22);
-        }
-
-        .sheetTabsHeader h3 {
-          margin: 0;
-          font-size: 16px;
-          font-weight: 900;
-        }
-
-        .sheetTabsHeader p {
-          margin: 6px 0 0;
-          color: #c8d4ea;
-          font-size: 14px;
-        }
-
-        .sheetTabs {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 10px;
-          margin-top: 14px;
-        }
-
-        .sheetTab {
-          border: 1px solid rgba(255, 255, 255, 0.14);
-          background: rgba(10, 23, 52, 0.5);
-          color: white;
-          border-radius: 999px;
-          padding: 10px 14px;
-          font-size: 13px;
-          font-weight: 800;
-          cursor: pointer;
-        }
-
-        .activeSheetTab {
-          background: linear-gradient(180deg, #ffb24c, #f29a1f);
-          border: none;
-        }
+        .sheetTabsHeader h3 { margin: 0; font-size: 16px; font-weight: 900; }
+        .sheetTabsHeader p { margin: 6px 0 0; color: #c8d4ea; font-size: 14px; }
+        .sheetTabs { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+        .sheetTab { border: 1px solid rgba(255, 255, 255, 0.14); background: rgba(10, 23, 52, 0.5); color: white; border-radius: 999px; padding: 10px 14px; font-size: 13px; font-weight: 800; cursor: pointer; }
 
         @media (max-width: 1280px) {
-          .topbar {
-            grid-template-columns: 1fr;
-            text-align: center;
-          }
-
-          .topActions {
-            justify-content: center;
-          }
-
-          .dashboardGrid {
-            grid-template-columns: 1fr;
-          }
-
-          .panelHeader {
-            flex-direction: column;
-          }
+          .topbar { grid-template-columns: 1fr; text-align: center; }
+          .topActions { justify-content: center; }
+          .dashboardGrid { grid-template-columns: 1fr; }
+          .panelHeader, .reportHeader { flex-direction: column; }
         }
 
         @media (max-width: 860px) {
-          .kpiGrid,
-          .departmentGrid,
-          .detailGrid,
-          .adminGrid {
-            grid-template-columns: 1fr;
-          }
+          .kpiGrid, .departmentGrid, .detailGrid, .adminGrid { grid-template-columns: 1fr; }
+          .logoText { font-size: 26px; }
+          .titleWrap h1 { font-size: 17px; }
+          .chartPanel { padding-left: 44px; }
+          .chartGridLines { left: 44px; }
+          .bar { width: 36px; }
+          .barGroup { width: 50px; min-width: 50px; max-width: 50px; }
+          .barLabel { font-size: 11px; }
+          .bottomLine, .adminTop, .topMetaRow, .historyTop { flex-direction: column; align-items: flex-start; }
+        }
 
-          .logoText {
-            font-size: 26px;
-          }
-
-          .titleWrap h1 {
-            font-size: 17px;
-          }
-
-          .chartPanel {
-            padding-left: 44px;
-          }
-
-          .chartGridLines {
-            left: 44px;
-          }
-
-          .bar {
-            width: 36px;
-          }
-
-          .barGroup {
-            width: 50px;
-            min-width: 50px;
-            max-width: 50px;
-          }
-
-          .barLabel {
-            font-size: 11px;
-          }
-
-          .bottomLine,
-          .adminTop,
-          .topMetaRow,
-          .historyTop {
-            flex-direction: column;
-            align-items: flex-start;
-          }
+        @media print {
+          .noPrint { display: none !important; }
+          .page { background: white !important; color: black !important; }
+          .shell { width: 100%; padding: 0; }
+          .dashboardGrid { display: block; }
+          .reportPanel { box-shadow: none; border: none; background: white; color: black; padding: 0; }
+          .printTitle h1 { display: block; margin: 0 0 8px; color: black; }
+          .printTitle p { color: black; margin: 3px 0; }
+          .tableWrap { border: 1px solid #333; background: white; overflow: visible; }
+          table { min-width: 0; width: 100%; font-size: 11px; }
+          th { background: #e8e8e8 !important; color: black; padding: 6px; }
+          td { color: black; padding: 6px; border-bottom: 1px solid #ccc; }
         }
       `}</style>
     </div>
@@ -2656,16 +1759,45 @@ function KpiCard({
   onClick?: () => void;
 }) {
   return (
-    <div
-      className={`kpiCard ${onClick ? "clickableCard" : ""}`}
-      onClick={onClick}
-    >
+    <div className={`kpiCard ${onClick ? "clickableCard" : ""}`} onClick={onClick}>
       <div className="kpiIcon">{icon}</div>
       <div className="kpiText">
         <h4>{title}</h4>
         <div className="kpiValue">{value}</div>
         <p>{note}</p>
       </div>
+    </div>
+  );
+}
+
+function DetailMini({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="detailMini">
+      <label>{label}</label>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function HistoryCard({ item }: { item: HistoryItem }) {
+  return (
+    <div className="historyCard">
+      <div className="historyTop">
+        <strong>{item.action}</strong>
+        <span>{formatHistoryDate(item.created_at)}</span>
+      </div>
+      <div className="historyMeta">
+        <span><strong>User:</strong> {item.actor || "-"}</span>
+        {item.fleet ? <span><strong>Fleet:</strong> {item.fleet}</span> : null}
+        {item.field ? <span><strong>Field:</strong> {item.field}</span> : null}
+      </div>
+      {(item.old_value || item.new_value) && (
+        <div className="historyChange">
+          <span><strong>Old:</strong> {item.old_value || "-"}</span>
+          <span><strong>New:</strong> {item.new_value || "-"}</span>
+        </div>
+      )}
+      {item.notes ? <div className="historyNotes">{item.notes}</div> : null}
     </div>
   );
 }
@@ -2701,37 +1833,24 @@ function isRegistrationStyleFleet(fleet: string) {
 function normalizeLoadedMachine(machine: Partial<Machine>): Machine {
   const fleet = String(machine.fleet || "UNIT").trim();
   const isRegistration = isRegistrationStyleFleet(fleet);
-  const normalizedType = isRegistration
-    ? "LDV"
-    : normalizeTypeLabel(String(machine.type || inferTypeFromFleet(fleet)));
-
+  const normalizedType = isRegistration ? "LDV" : normalizeTypeLabel(String(machine.type || inferTypeFromFleet(fleet)));
   const status = String(machine.status || "Available");
-  const availability = Number(machine.availability || 0);
-  const majorRepair = Boolean(machine.majorRepair);
 
   return {
     fleet,
     type: normalizedType,
-    machineType:
-      normalizedType === "LDV"
-        ? "Light Vehicle"
-        : String(machine.machineType || fleet),
+    machineType: normalizedType === "LDV" ? "Light Vehicle" : String(machine.machineType || fleet),
     status,
     location: String(machine.location || "Hwange"),
-    department: String(
-      machine.department || inferDepartmentFromType(normalizedType)
-    ),
-    availability,
+    department: String(machine.department || inferDepartmentFromType(normalizedType)),
+    availability: Number(machine.availability || 0),
     updated: String(machine.updated || new Date().toLocaleDateString()),
-    majorRepair,
+    majorRepair: Boolean(machine.majorRepair),
     repairReason: String(machine.repairReason || ""),
     sparesEta: String(machine.sparesEta || ""),
     hoursWorked: Number(machine.hoursWorked || 0),
     hoursDown: Number(machine.hoursDown || 0),
-    onlineStatus: String(
-      machine.onlineStatus ||
-        (status.toLowerCase().includes("avail") ? "Online" : "Offline")
-    ),
+    onlineStatus: String(machine.onlineStatus || (status.toLowerCase().includes("avail") ? "Online" : "Offline")),
     downtimeReason: String(machine.downtimeReason || ""),
   };
 }
@@ -2739,7 +1858,6 @@ function normalizeLoadedMachine(machine: Partial<Machine>): Machine {
 function parseCSV(text: string): Machine[] {
   const lines = text.trim().split(/\r?\n/);
   if (lines.length < 2) return [];
-
   const headers = lines[0].split(",").map((header) => header.trim().toLowerCase());
 
   return lines
@@ -2747,31 +1865,19 @@ function parseCSV(text: string): Machine[] {
     .map((line) => {
       const cols = line.split(",").map((col) => col.trim());
       const row: Record<string, string> = {};
-
       headers.forEach((header, index) => {
         row[header] = cols[index] || "";
       });
-
       return normalizeMachine(row);
     })
     .filter((row) => row.fleet && row.machineType);
 }
 
-function parseSelectedSheet(
-  sheetName: string,
-  rows: Record<string, unknown>[]
-): Machine[] {
+function parseSelectedSheet(sheetName: string, rows: Record<string, unknown>[]): Machine[] {
   const lower = sheetName.toLowerCase();
-
-  if (lower.includes("summary")) {
-    return mapSummaryRows(rows);
-  }
-
+  if (lower.includes("summary")) return mapSummaryRows(rows);
   const normalizedFirst = rows[0] ? normalizeKeys(rows[0]) : {};
-  if ("machine" in normalizedFirst && "availability" in normalizedFirst) {
-    return mapSummaryRows(rows);
-  }
-
+  if ("machine" in normalizedFirst && "availability" in normalizedFirst) return mapSummaryRows(rows);
   return [];
 }
 
@@ -2779,31 +1885,17 @@ function mapSummaryRows(rows: Record<string, unknown>[]): Machine[] {
   return rows
     .map((row) => {
       const n = normalizeKeys(row);
-
-      const fleet = String(
-        n["machine"] || n["fleet"] || n["fleet number"] || ""
-      ).trim();
+      const fleet = String(n["machine"] || n["fleet"] || n["fleet number"] || "").trim();
       if (!fleet) return null;
 
       const inferredType = normalizeTypeLabel(inferTypeFromFleet(fleet));
-
       const availabilityRaw = n["availability"] ?? n["availability %"] ?? "";
       let availability = Number(availabilityRaw);
       if (!Number.isFinite(availability)) availability = 0;
-
-      if (availability <= 1) {
-        availability = Math.round(availability * 10000) / 100;
-      }
+      if (availability <= 1) availability = Math.round(availability * 10000) / 100;
 
       const downtime = Number(n["downtime"] || 0);
-      const status =
-        availability >= 85
-          ? "Available"
-          : availability > 0
-          ? "Repair"
-          : downtime >= 359
-          ? "Down"
-          : "Repair";
+      const status = availability >= 85 ? "Available" : availability > 0 ? "Repair" : downtime >= 359 ? "Down" : "Repair";
 
       return normalizeLoadedMachine({
         fleet,
@@ -2819,9 +1911,7 @@ function mapSummaryRows(rows: Record<string, unknown>[]): Machine[] {
         sparesEta: "",
         hoursWorked: Number(n["hours worked"] || n["hoursworked"] || 0),
         hoursDown: Number(n["hours down"] || n["hoursdown"] || downtime || 0),
-        onlineStatus: status.toLowerCase().includes("avail")
-          ? "Online"
-          : "Offline",
+        onlineStatus: status.toLowerCase().includes("avail") ? "Online" : "Offline",
         downtimeReason: String(n["downtime reason"] || n["reason"] || ""),
       });
     })
@@ -2838,8 +1928,8 @@ function normalizeKeys(row: Record<string, unknown>): Record<string, string> {
 
 function normalizeMachine(row: Record<string, string>): Machine {
   const majorRepair =
-    String(row.majorrepair || row["major repair"] || "").toLowerCase() ===
-      "true" || String(row.status || "").toLowerCase().includes("major");
+    String(row.majorrepair || row["major repair"] || "").toLowerCase() === "true" ||
+    String(row.status || "").toLowerCase().includes("major");
 
   const fleet = row.fleet || row["fleet number"] || row.unit || "UNIT";
   const type = normalizeTypeLabel(row.type || inferTypeFromFleet(fleet));
@@ -2847,16 +1937,11 @@ function normalizeMachine(row: Record<string, string>): Machine {
   return normalizeLoadedMachine({
     fleet,
     type,
-    machineType:
-      row["machine type"] ||
-      row.model ||
-      (type === "LDV" ? "Light Vehicle" : fleet),
+    machineType: row["machine type"] || row.machinetype || row.model || (type === "LDV" ? "Light Vehicle" : fleet),
     status: majorRepair ? "Major Repair" : row.status || "Available",
     location: row.location || "Hwange",
     department: row.department || inferDepartmentFromType(type),
-    availability: Number(
-      row.availability || row["availability %"] || row.percent || 0
-    ),
+    availability: Number(row.availability || row["availability %"] || row.percent || 0),
     updated: row.updated || new Date().toLocaleDateString(),
     majorRepair,
     repairReason: row.repairreason || row["repair reason"] || "",
@@ -2864,55 +1949,29 @@ function normalizeMachine(row: Record<string, string>): Machine {
     hoursWorked: Number(row.hoursworked || row["hours worked"] || 0),
     hoursDown: Number(row.hoursdown || row["hours down"] || 0),
     onlineStatus: row.onlinestatus || row["online status"] || "Online",
-    downtimeReason:
-      row.downtimereason || row["downtime reason"] || row.reason || "",
+    downtimeReason: row.downtimereason || row["downtime reason"] || row.reason || "",
   });
 }
 
 function inferTypeFromFleet(fleet: string) {
   const cleaned = fleet.toUpperCase().trim();
+  if (isRegistrationStyleFleet(cleaned)) return "LDV";
 
-  if (isRegistrationStyleFleet(cleaned)) {
-    return "LDV";
-  }
-
-  const knownHeavyPrefixes = [
-    "FEL",
-    "TEX",
-    "TRT",
-    "HT",
-    "TRL",
-    "TDC",
-    "GEN",
-    "WB",
-    "LV",
-    "LDV",
-    "WT",
-    "EX",
-    "DT",
-    "TLB",
-    "CARGO",
-  ];
-
+  const knownHeavyPrefixes = ["FEL", "TEX", "TRT", "HT", "TRL", "TDC", "GEN", "WB", "LV", "LDV", "WT", "EX", "DT", "TLB", "CARGO"];
   for (const prefix of knownHeavyPrefixes) {
-    if (cleaned.startsWith(prefix)) {
-      return prefix === "LV" ? "LDV" : prefix;
-    }
+    if (cleaned.startsWith(prefix)) return prefix === "LV" ? "LDV" : prefix;
   }
 
   const lettersOnly = cleaned.match(/^[A-Z]+/);
   if (!lettersOnly) return "GEN";
-
   return lettersOnly[0];
 }
 
 function inferDepartmentFromType(type: string) {
   const t = normalizeTypeLabel(type);
-
   if (t === "LDV") return "Logistics";
   if (["FEL", "HT", "TEX", "WB", "EX", "DT"].includes(t)) return "Mining";
   if (["TRT", "TRL", "TDC", "TLB", "CARGO"].includes(t)) return "Logistics";
-
   return "Plant";
 }
 
@@ -2929,11 +1988,15 @@ function filteredFallbackMachine(machines: Machine[]) {
 
 function dedupeMachinesByFleet(machines: Machine[]) {
   const map = new Map<string, Machine>();
-
   for (const machine of machines) {
     const key = machine.fleet.trim().toUpperCase();
     map.set(key, machine);
   }
-
   return Array.from(map.values());
 }
+
+function csvCell(value: string | number | boolean | null | undefined) {
+  const text = String(value ?? "");
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
