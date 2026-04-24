@@ -267,7 +267,7 @@ export default function ForemanPage() {
         <header className="header">
           <div>
             <div className="logoText">TURBO ENERGY</div>
-            <h1>Foreman Machine Update</h1>
+            <h1>Machine Update</h1>
             <p>Logged in as {foremanName}</p>
           </div>
 
@@ -288,7 +288,23 @@ export default function ForemanPage() {
             className="input"
             placeholder="Search fleet, type, department, location..."
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={(event) => {
+              const value = event.target.value;
+              setSearch(value);
+
+              const found = machines.find((machine) =>
+                machine.fleet.toLowerCase().includes(value.toLowerCase()) ||
+                String(machine.machineType || "").toLowerCase().includes(value.toLowerCase()) ||
+                String(machine.type || "").toLowerCase().includes(value.toLowerCase()) ||
+                String(machine.department || "").toLowerCase().includes(value.toLowerCase()) ||
+                String(machine.location || "").toLowerCase().includes(value.toLowerCase())
+              );
+
+              if (found) {
+                setSelectedFleet(found.fleet);
+                setForm(found);
+              }
+            }}
           />
 
           <label className="label">Select machine</label>
