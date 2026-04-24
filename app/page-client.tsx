@@ -123,6 +123,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
   const [reportTo, setReportTo] = useState("");
   const [reportData, setReportData] = useState<HistoryItem[]>([]);
   const [adminMachineSearch, setAdminMachineSearch] = useState("");
+  const [selectedDepartment, setSelectedDepartment] = useState("");
 
   useEffect(() => {
     void Promise.all([loadMachinesFromSupabase(), loadHistoryFromSupabase()]);
@@ -460,13 +461,58 @@ export default function DashboardClient({ role, username }: DashboardClientProps
       groups[machine.department].push(machine);
     });
 
-    return Object.entries(groups).map(([department, items]) => {
-      const active = items.filter((m) => !m.majorRepair);
-      const available = active.filter((m) => m.status.toLowerCase().includes("avail")).length;
-      const percent = active.length === 0 ? 0 : Math.round((available / active.length) * 100);
-      return { department, total: items.length, active: active.length, available, percent };
-    });
+    return Object.entries(groups)
+      .map(([department, items]) => {
+        const active = items.filter((m) => !m.majorRepair);
+        const available = active.filter((m) => m.status.toLowerCase().includes("avail")).length;
+        const percent = active.length === 0 ? 0 : Math.round((available / active.length) * 100);
+        return { department, total: items.length, active: active.length, available, percent };
+      })
+      .sort((a, b) => a.department.localeCompare(b.department));
   }, [machines]);
+
+  const activeDepartment = selectedDepartment || departmentAvailability[0]?.department || "";
+
+  const selectedDepartmentMachines = useMemo(() => {
+    if (!activeDepartment) return [];
+    return machines
+      .filter((machine) => machine.department === activeDepartment)
+      .sort((a, b) => normalizeTypeLabel(a.type).localeCompare(normalizeTypeLabel(b.type)) || a.fleet.localeCompare(b.fleet));
+  }, [activeDepartment, machines]);
+
+  const selectedDepartmentTypeBreakdown = useMemo(() => {
+    const groups: Record<string, Machine[]> = {};
+    selectedDepartmentMachines.forEach((machine) => {
+      const type = normalizeTypeLabel(machine.type);
+      if (!groups[type]) groups[type] = [];
+      groups[type].push(machine);
+    });
+
+    return Object.entries(groups)
+      .map(([type, items]) => {
+        const active = items.filter((m) => !m.majorRepair);
+        const available = active.filter((m) => m.status.toLowerCase().includes("avail")).length;
+        const availability = active.length === 0 ? 0 : Math.round((available / active.length) * 100);
+        return {
+          type,
+          total: items.length,
+          active: active.length,
+          available,
+          availability,
+          hoursWorked: roundNumber(items.reduce((sum, m) => sum + Number(m.hoursWorked || 0), 0)),
+          hoursDown: roundNumber(items.reduce((sum, m) => sum + Number(m.hoursDown || 0), 0)),
+        };
+      })
+      .sort((a, b) => b.total - a.total || a.type.localeCompare(b.type));
+  }, [selectedDepartmentMachines]);
+
+  function openDepartmentAvailability(department: string) {
+    setSelectedDepartment(department);
+    setTimeout(() => {
+      const el = document.getElementById("department-detail");
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
+  }
 
   async function updateMachineField(fleet: string, field: keyof Machine, value: string | number | boolean) {
     if (!isAdmin) {
@@ -1218,12 +1264,17 @@ export default function DashboardClient({ role, username }: DashboardClientProps
             <section className="panel noPrint">
               <div className="sectionHeading">
                 <h2>Department Availability</h2>
-                <p>Availability percentage by department with major repairs excluded.</p>
+                <p>Click a department to open its machine type availability breakdown.</p>
               </div>
 
               <div className="departmentGrid">
                 {departmentAvailability.map((item) => (
-                  <div key={item.department} className="departmentCard">
+                  <button
+                    key={item.department}
+                    type="button"
+                    className={`departmentCard departmentButton ${activeDepartment === item.department ? "activeDepartmentCard" : ""}`}
+                    onClick={() => openDepartmentAvailability(item.department)}
+                  >
                     <div className="departmentHead">
                       <h3>{item.department}</h3>
                       <span>{item.percent}%</span>
@@ -1236,8 +1287,84 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                       <span>Active: {item.active}</span>
                       <span>Available: {item.available}</span>
                     </div>
-                  </div>
+                  </button>
                 ))}
+              </div>
+            </section>
+
+            <section className="panel noPrint" id="department-detail">
+              <div className="sectionHeading departmentDetailHeading">
+                <div>
+                  <h2>{activeDepartment || "Department"} Machine Type Availability</h2>
+                  <p>Grouped by machine type inside this department. Major repairs are shown but excluded from active availability.</p>
+                </div>
+                <div className="departmentDetailBadge">
+                  {selectedDepartmentMachines.length} machine(s)
+                </div>
+              </div>
+
+              <div className="departmentTypeGrid">
+                {selectedDepartmentTypeBreakdown.length === 0 ? (
+                  <div className="mutedCard">Select a department to view grouped availability.</div>
+                ) : (
+                  selectedDepartmentTypeBreakdown.map((item) => (
+                    <div key={item.type} className="departmentTypeCard">
+                      <div className="departmentTypeTop">
+                        <strong>{item.type}</strong>
+                        <span>{item.availability}%</span>
+                      </div>
+                      <div className="departmentBarTrack">
+                        <div className="departmentBarFill" style={{ width: `${item.availability}%` }} />
+                      </div>
+                      <div className="departmentMeta">
+                        <span>Total: {item.total}</span>
+                        <span>Active: {item.active}</span>
+                        <span>Available: {item.available}</span>
+                        <span>Worked: {item.hoursWorked}</span>
+                        <span>Down: {item.hoursDown}</span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="tableWrap departmentMachineTable">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Fleet</th>
+                      <th>Type</th>
+                      <th>Status</th>
+                      <th>Availability</th>
+                      <th>Hours Worked</th>
+                      <th>Hours Down</th>
+                      <th>Reason</th>
+                      <th>Location</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedDepartmentMachines.length === 0 ? (
+                      <tr><td colSpan={8}>No machines in selected department.</td></tr>
+                    ) : (
+                      selectedDepartmentMachines.map((machine) => (
+                        <tr key={machine.fleet} className="clickableRow" onClick={() => setSelectedFleet(machine.fleet)}>
+                          <td>{machine.fleet}</td>
+                          <td>{machine.machineType}</td>
+                          <td>
+                            <span className={`statusPill ${getStatusClass(machine.status, machine.majorRepair)}`}>
+                              {machine.majorRepair ? "Major Repair" : machine.status}
+                            </span>
+                          </td>
+                          <td>{machine.availability}%</td>
+                          <td>{machine.hoursWorked}</td>
+                          <td>{machine.hoursDown}</td>
+                          <td>{machine.downtimeReason || machine.repairReason || "-"}</td>
+                          <td>{machine.location}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
               </div>
             </section>
 
@@ -1489,14 +1616,14 @@ export default function DashboardClient({ role, username }: DashboardClientProps
         }
 
         .shell {
-          width: min(1460px, calc(100% - 24px));
+          width: min(1840px, calc(100% - 28px));
           margin: 0 auto;
           padding: 0 0 24px;
           overflow-x: hidden;
         }
 
         .topMetaRow {
-          width: min(1460px, calc(100% - 24px));
+          width: min(1840px, calc(100% - 28px));
           margin: 14px auto 0;
           display: flex;
           justify-content: space-between;
@@ -1583,11 +1710,75 @@ export default function DashboardClient({ role, username }: DashboardClientProps
           border: none;
         }
 
+        .departmentButton {
+          color: inherit;
+          text-align: left;
+          cursor: pointer;
+          width: 100%;
+          transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+        }
+
+        .departmentButton:hover,
+        .activeDepartmentCard {
+          transform: translateY(-2px);
+          border-color: rgba(255, 207, 103, 0.55);
+          background: rgba(255, 177, 75, 0.08);
+        }
+
+        .departmentDetailHeading {
+          display: flex;
+          justify-content: space-between;
+          gap: 14px;
+          align-items: center;
+          flex-wrap: wrap;
+        }
+
+        .departmentDetailBadge {
+          border-radius: 999px;
+          padding: 10px 14px;
+          background: rgba(255, 177, 75, 0.16);
+          color: #ffcf67;
+          font-size: 14px;
+          font-weight: 900;
+        }
+
+        .departmentTypeGrid {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 12px;
+          margin-bottom: 14px;
+        }
+
+        .departmentTypeCard {
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          border-radius: 16px;
+          padding: 14px;
+          background: rgba(255, 255, 255, 0.04);
+        }
+
+        .departmentTypeTop {
+          display: flex;
+          justify-content: space-between;
+          gap: 10px;
+          align-items: center;
+          margin-bottom: 10px;
+          font-size: 16px;
+        }
+
+        .departmentTypeTop span {
+          color: #ffcf67;
+          font-weight: 900;
+        }
+
+        .departmentMachineTable table {
+          min-width: 980px;
+        }
+
         .solidButton { background: rgba(14, 35, 74, 0.95); }
 
         .dashboardGrid {
           display: grid;
-          grid-template-columns: minmax(0, 1.45fr) minmax(360px, 1fr);
+          grid-template-columns: minmax(0, 1.55fr) minmax(420px, 1fr);
           gap: 16px;
           margin-top: 14px;
           min-width: 0;
@@ -2225,5 +2416,9 @@ function buildDowntimeSummary(machines: Machine[], groupBy: (machine: Machine) =
 function csvCell(value: string | number | boolean | null | undefined) {
   const text = String(value ?? "");
   return `"${text.replace(/"/g, '""')}"`;
+}
+
+function roundNumber(value: number) {
+  return Math.round((Number(value) || 0) * 100) / 100;
 }
 
