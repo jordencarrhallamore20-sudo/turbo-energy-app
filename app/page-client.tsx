@@ -2168,6 +2168,10 @@ export default function DashboardClient({ role, username }: DashboardClientProps
         }
 
         @media (max-width: 860px) {
+          .adminSearchRow {
+            grid-template-columns: 1fr;
+          }
+
           .kpiGrid, .departmentGrid, .detailGrid, .adminGrid { grid-template-columns: 1fr; }
           .logoText { font-size: 26px; }
           .titleWrap h1 { font-size: 17px; }
