@@ -523,6 +523,28 @@ export default function DashboardClient({ role, username }: DashboardClientProps
     });
   }, [adminSearch, machines]);
 
+  const repairOfflineMachines = useMemo(() => {
+    return machines
+      .filter((machine) => {
+        const status = machine.status.toLowerCase();
+        const online = machine.onlineStatus.toLowerCase();
+
+        return (
+          machine.majorRepair ||
+          online === "offline" ||
+          status.includes("repair") ||
+          status.includes("down") ||
+          status.includes("maint") ||
+          status.includes("major")
+        );
+      })
+      .sort((a, b) => {
+        const dept = a.department.localeCompare(b.department);
+        if (dept !== 0) return dept;
+        return a.fleet.localeCompare(b.fleet);
+      });
+  }, [machines]);
+
   const selectedMachine = useMemo(() => {
     return machines.find((machine) => machine.fleet === selectedFleet) || filteredFallbackMachine(machines);
   }, [machines, selectedFleet]);
@@ -1158,7 +1180,72 @@ export default function DashboardClient({ role, username }: DashboardClientProps
               </section>
             )}
 
-            <section className="panel reportPanel" id="report-generator">
+                        <section className="panel noPrint" id="repairs-offline-list">
+              <div className="sectionHeading">
+                <h2>Machines Booked for Repairs / Offline</h2>
+                <p>All machines currently booked down, offline, maintenance, repair, or major repair with the reasons entered by the team.</p>
+              </div>
+
+              <div className="majorRepairSummary">
+                <div className="majorBadge">{repairOfflineMachines.length}</div>
+                <div>
+                  <strong>{repairOfflineMachines.length}</strong> machine(s) currently requiring attention
+                </div>
+              </div>
+
+              <div className="tableWrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Fleet</th>
+                      <th>Type</th>
+                      <th>Department</th>
+                      <th>Status</th>
+                      <th>Online</th>
+                      <th>Hours Down</th>
+                      <th>Downtime Reason</th>
+                      <th>Repair Reason</th>
+                      <th>Spares ETA</th>
+                      <th>Location</th>
+                      <th>Updated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {repairOfflineMachines.length === 0 ? (
+                      <tr>
+                        <td colSpan={11}>No machines are currently booked for repair or offline.</td>
+                      </tr>
+                    ) : (
+                      repairOfflineMachines.map((machine) => (
+                        <tr
+                          key={`repair-offline-${machine.fleet}`}
+                          className={selectedFleet === machine.fleet ? "selectedRow" : "clickableRow"}
+                          onClick={() => setSelectedFleet(machine.fleet)}
+                        >
+                          <td>{machine.fleet}</td>
+                          <td>{machine.machineType}</td>
+                          <td>{machine.department}</td>
+                          <td>
+                            <span className={`statusPill ${getStatusClass(machine.status, machine.majorRepair)}`}>
+                              {machine.majorRepair ? "Major Repair" : machine.status}
+                            </span>
+                          </td>
+                          <td>{machine.onlineStatus}</td>
+                          <td>{machine.hoursDown}</td>
+                          <td>{machine.downtimeReason || "-"}</td>
+                          <td>{machine.repairReason || "-"}</td>
+                          <td>{machine.sparesEta || "-"}</td>
+                          <td>{machine.location}</td>
+                          <td>{machine.updated}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+<section className="panel reportPanel" id="report-generator">
               <div className="sectionHeading reportHeader">
                 <div>
                   <h2>Report Generator</h2>
