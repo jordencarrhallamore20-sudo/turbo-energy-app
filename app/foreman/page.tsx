@@ -119,15 +119,18 @@ export default function MachineUpdatePage() {
   }, [loggedIn]);
 
   async function loadMachines() {
-    setLoading(true);
-
     const cached = readCachedMachines();
+
     if (cached.length > 0) {
       setMachines(cached);
-      if (!selectedFleet) {
-        setSelectedFleet(cached[0].fleet);
-        setForm(cached[0]);
-      }
+      const chosen =
+        cached.find((machine) => machine.fleet === selectedFleet) ||
+        cached[0];
+      setSelectedFleet(chosen.fleet);
+      setForm(chosen);
+      setLoading(false);
+    } else {
+      setLoading(true);
     }
 
     if (!navigator.onLine) {
@@ -505,9 +508,22 @@ export default function MachineUpdatePage() {
           </div>
         </section>
 
-        {loading ? (
+        {loading && machines.length === 0 ? (
           <section className="panel">
-            <strong>Loading machines...</strong>
+            <strong>Loading machine list...</strong>
+            <p className="smallText">
+              If there is no signal, open this page once while online first so the phone can save the machine list.
+            </p>
+          </section>
+        ) : machines.length === 0 ? (
+          <section className="panel">
+            <strong>No saved machines available.</strong>
+            <p className="smallText">
+              Connect to internet, press Refresh Machines, then this phone will work offline after that.
+            </p>
+            <button className="secondaryButton" onClick={() => void loadMachines()}>
+              Refresh Machines
+            </button>
           </section>
         ) : (
           <section className="panel">
@@ -632,13 +648,14 @@ export default function MachineUpdatePage() {
         )}
 
         <section className="panel">
-          <h3>How offline mode and downtime works</h3>
+          <h3>Offline mode and downtime</h3>
           <p>
-            If there is no signal, the update is saved on the phone and queued.
-            When internet returns, it syncs automatically. Downtime starts when
-            the machine is booked Offline, Down, Repair, Maintenance, or Major
-            Repair. When it is booked back Online/Available, the system adds the
-            elapsed time to Hours Down and clears the downtime start time.
+            Open this page once while online to save the machine list on the phone.
+            After that, if signal drops, you can still select machines and save updates.
+            Offline updates stay queued and sync automatically when internet returns.
+            Downtime starts when the machine is booked Offline, Down, Repair,
+            Maintenance, or Major Repair. When it is booked back Online/Available,
+            the elapsed time is added to Hours Down.
           </p>
         </section>
       </div>
