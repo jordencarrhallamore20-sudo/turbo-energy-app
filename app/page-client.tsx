@@ -265,6 +265,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
   const [selectedType, setSelectedType] = useState("ALL");
   const [registerFilter, setRegisterFilter] = useState<RegisterFilter>("ALL");
   const [search, setSearch] = useState("");
+  const [adminSearch, setAdminSearch] = useState("");
   const [fileName, setFileName] = useState("No file chosen");
   const [sheetNames, setSheetNames] = useState<string[]>([]);
   const [workbookSheets, setWorkbookSheets] = useState<WorkbookSheetData[]>([]);
@@ -501,6 +502,26 @@ export default function DashboardClient({ role, username }: DashboardClientProps
       return matchesType && matchesSearch && matchesRegisterFilter;
     });
   }, [machines, registerFilter, search, selectedType]);
+
+  const filteredAdminMachines = useMemo(() => {
+    const term = adminSearch.trim().toLowerCase();
+
+    if (!term) return machines;
+
+    return machines.filter((machine) => {
+      return (
+        machine.fleet.toLowerCase().includes(term) ||
+        machine.type.toLowerCase().includes(term) ||
+        machine.machineType.toLowerCase().includes(term) ||
+        machine.status.toLowerCase().includes(term) ||
+        machine.location.toLowerCase().includes(term) ||
+        machine.department.toLowerCase().includes(term) ||
+        machine.repairReason.toLowerCase().includes(term) ||
+        machine.downtimeReason.toLowerCase().includes(term) ||
+        machine.onlineStatus.toLowerCase().includes(term)
+      );
+    });
+  }, [adminSearch, machines]);
 
   const selectedMachine = useMemo(() => {
     return machines.find((machine) => machine.fleet === selectedFleet) || filteredFallbackMachine(machines);
@@ -1995,6 +2016,21 @@ export default function DashboardClient({ role, username }: DashboardClientProps
         .historyTop span { color: #cfdbf4; font-size: 12px; font-weight: 700; }
         .historyMeta, .historyChange { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; color: #dbe5f7; margin-bottom: 6px; }
         .historyNotes { font-size: 13px; color: #ffffff; }
+
+        .adminSearchRow {
+          display: grid;
+          grid-template-columns: 1fr auto;
+          gap: 10px;
+          align-items: center;
+          margin-bottom: 10px;
+        }
+
+        .adminSearchCount {
+          color: #d8e1f6;
+          font-size: 13px;
+          font-weight: 800;
+          margin-bottom: 12px;
+        }
 
         .adminList { display: flex; flex-direction: column; gap: 12px; max-height: 760px; overflow: auto; padding-right: 4px; }
         .adminListTop { max-height: 620px; }
