@@ -297,7 +297,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
 
     if (error) {
       console.error("Supabase load error:", error);
-      const fallback = dedupeMachinesByFleet(sampleData.map(normalizeLoadedMachine));
+      const fallback = dedupeMachinesByFleet(sampleData.map((machine) => normalizeLoadedMachine(machine)));
       setMachines(fallback);
       if (!selectedFleet && fallback.length > 0) setSelectedFleet(fallback[0].fleet);
       setLoadingData(false);
@@ -306,8 +306,8 @@ export default function DashboardClient({ role, username }: DashboardClientProps
 
     const loaded =
       data && data.length > 0
-        ? dedupeMachinesByFleet((data as Partial<Machine>[]).map(normalizeLoadedMachine))
-        : dedupeMachinesByFleet(sampleData.map(normalizeLoadedMachine));
+        ? dedupeMachinesByFleet((data as Partial<Machine>[]).map((machine) => normalizeLoadedMachine(machine)))
+        : dedupeMachinesByFleet(sampleData.map((machine) => normalizeLoadedMachine(machine)));
 
     setMachines(loaded);
     if (!selectedFleet && loaded.length > 0) setSelectedFleet(loaded[0].fleet);
@@ -356,7 +356,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
   }
 
   async function saveMachines(data: Machine[]) {
-    const normalized = dedupeMachinesByFleet(data.map(normalizeLoadedMachine));
+    const normalized = dedupeMachinesByFleet(data.map((machine) => normalizeLoadedMachine(machine)));
     setMachines(normalized);
 
     const payload = normalized.map((machine) => ({
