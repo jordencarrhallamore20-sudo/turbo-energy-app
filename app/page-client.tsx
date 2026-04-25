@@ -1024,7 +1024,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                 </div>
 
                 <div className="adminList adminListTop">
-                  {machines.map((machine) => (
+                  {filteredAdminMachines.map((machine) => (
                     <div key={machine.fleet} className="adminCard">
                       <div className="adminTop">
                         <div>
@@ -1271,7 +1271,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                   onChange={(e) => setReportMachines(Array.from(e.target.selectedOptions, (option) => option.value))}
                   className="selectInput reportMachineSelect"
                 >
-                  {machines.map((machine) => (
+                  {filteredAdminMachines.map((machine) => (
                     <option key={machine.fleet} value={machine.fleet}>
                       {machine.fleet} - {machine.machineType}
                     </option>
