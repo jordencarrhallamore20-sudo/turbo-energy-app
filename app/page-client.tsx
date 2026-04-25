@@ -270,6 +270,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
   const [activeSheet, setActiveSheet] = useState("");
   const [loadingData, setLoadingData] = useState(true);
   const [selectedFleet, setSelectedFleet] = useState("");
+  const [selectedDepartment, setSelectedDepartment] = useState("Plant");
   const [reportMachines, setReportMachines] = useState<string[]>([]);
   const [reportFrom, setReportFrom] = useState("");
   const [reportTo, setReportTo] = useState("");
@@ -542,6 +543,42 @@ export default function DashboardClient({ role, username }: DashboardClientProps
       return { department, total: items.length, active: active.length, available, percent };
     });
   }, [machines]);
+
+  const selectedDepartmentMachines = useMemo(() => {
+    return machines.filter((machine) => machine.department === selectedDepartment);
+  }, [machines, selectedDepartment]);
+
+  const selectedDepartmentTypeBreakdown = useMemo(() => {
+    const groups: Record<string, Machine[]> = {};
+
+    selectedDepartmentMachines.forEach((machine) => {
+      const type = normalizeTypeLabel(machine.type || inferTypeFromFleet(machine.fleet));
+      if (!groups[type]) groups[type] = [];
+      groups[type].push(machine);
+    });
+
+    return Object.entries(groups)
+      .map(([type, items]) => {
+        const active = items.filter((machine) => !machine.majorRepair);
+        const available = active.filter((machine) =>
+          machine.status.toLowerCase().includes("avail")
+        ).length;
+        const percent = active.length === 0 ? 0 : Math.round((available / active.length) * 100);
+        const hoursWorked = roundNumber(items.reduce((sum, machine) => sum + Number(machine.hoursWorked || 0), 0));
+        const hoursDown = roundNumber(items.reduce((sum, machine) => sum + Number(machine.hoursDown || 0), 0));
+
+        return {
+          type,
+          total: items.length,
+          active: active.length,
+          available,
+          percent,
+          hoursWorked,
+          hoursDown,
+        };
+      })
+      .sort((a, b) => a.type.localeCompare(b.type));
+  }, [selectedDepartmentMachines]);
 
   async function updateMachineField(fleet: string, field: keyof Machine, value: string | number | boolean) {
     if (!isAdmin) {
@@ -1196,12 +1233,19 @@ export default function DashboardClient({ role, username }: DashboardClientProps
             <section className="panel noPrint">
               <div className="sectionHeading">
                 <h2>Department Availability</h2>
-                <p>Availability percentage by department with major repairs excluded.</p>
+                <p>Click a department to open its machine type availability breakdown.</p>
               </div>
 
               <div className="departmentGrid">
                 {departmentAvailability.map((item) => (
-                  <div key={item.department} className="departmentCard">
+                  <button
+                    key={item.department}
+                    type="button"
+                    className={`departmentCard departmentButton ${
+                      selectedDepartment === item.department ? "selectedDepartmentCard" : ""
+                    }`}
+                    onClick={() => setSelectedDepartment(item.department)}
+                  >
                     <div className="departmentHead">
                       <h3>{item.department}</h3>
                       <span>{item.percent}%</span>
@@ -1214,8 +1258,84 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                       <span>Active: {item.active}</span>
                       <span>Available: {item.available}</span>
                     </div>
-                  </div>
+                  </button>
                 ))}
+              </div>
+            </section>
+
+            <section className="panel noPrint" id="department-drilldown">
+              <div className="sectionHeading drilldownHeading">
+                <div>
+                  <h2>{selectedDepartment} Machine Type Availability</h2>
+                  <p>Grouped by machine type inside this department. Major repairs are shown but excluded from active availability.</p>
+                </div>
+                <span className="majorBadge wideBadge">{selectedDepartmentMachines.length} machine(s)</span>
+              </div>
+
+              <div className="departmentTypeGrid">
+                {selectedDepartmentTypeBreakdown.length === 0 ? (
+                  <div className="mutedCard">No machines found for this department.</div>
+                ) : (
+                  selectedDepartmentTypeBreakdown.map((item) => (
+                    <div key={item.type} className="departmentTypeCard">
+                      <div className="departmentHead">
+                        <h3>{item.type}</h3>
+                        <span>{item.percent}%</span>
+                      </div>
+                      <div className="departmentBarTrack">
+                        <div className="departmentBarFill" style={{ width: `${item.percent}%` }} />
+                      </div>
+                      <div className="departmentMeta">
+                        <span>Total: {item.total}</span>
+                        <span>Active: {item.active}</span>
+                        <span>Available: {item.available}</span>
+                      </div>
+                      <div className="departmentMeta">
+                        <span>Worked: {item.hoursWorked}</span>
+                        <span>Down: {item.hoursDown}</span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="tableWrap departmentMachineTable">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Fleet</th>
+                      <th>Type</th>
+                      <th>Status</th>
+                      <th>Availability</th>
+                      <th>Hours Worked</th>
+                      <th>Hours Down</th>
+                      <th>Online</th>
+                      <th>Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedDepartmentMachines.map((machine) => (
+                      <tr
+                        key={`${selectedDepartment}-${machine.fleet}`}
+                        className={selectedFleet === machine.fleet ? "selectedRow" : "clickableRow"}
+                        onClick={() => setSelectedFleet(machine.fleet)}
+                      >
+                        <td>{machine.fleet}</td>
+                        <td>{machine.machineType}</td>
+                        <td>
+                          <span className={`statusPill ${getStatusClass(machine.status, machine.majorRepair)}`}>
+                            {machine.majorRepair ? "Major Repair" : machine.status}
+                          </span>
+                        </td>
+                        <td>{machine.availability}%</td>
+                        <td>{machine.hoursWorked}</td>
+                        <td>{machine.hoursDown}</td>
+                        <td>{machine.onlineStatus}</td>
+                        <td>{machine.downtimeReason || machine.repairReason || "-"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </section>
 
@@ -1763,7 +1883,45 @@ export default function DashboardClient({ role, username }: DashboardClientProps
           gap: 12px;
         }
 
-        .departmentCard, .detailCard, .detailMini, .detailWide {
+        .departmentTypeGrid {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 12px;
+          margin-bottom: 14px;
+        }
+
+        .departmentButton {
+          width: 100%;
+          color: inherit;
+          text-align: left;
+          cursor: pointer;
+          font-family: inherit;
+        }
+
+        .selectedDepartmentCard {
+          border-color: rgba(255, 207, 103, 0.9) !important;
+          box-shadow: 0 0 0 1px rgba(255, 207, 103, 0.4);
+        }
+
+        .drilldownHeading {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 12px;
+        }
+
+        .wideBadge {
+          width: auto !important;
+          padding: 0 14px;
+          border-radius: 999px !important;
+          white-space: nowrap;
+        }
+
+        .departmentMachineTable {
+          margin-top: 14px;
+        }
+
+        .departmentCard, .departmentTypeCard, .detailCard, .detailMini, .detailWide {
           border: 1px solid rgba(255, 255, 255, 0.1);
           border-radius: 16px;
           padding: 14px;
@@ -2144,6 +2302,10 @@ function formatHistoryDate(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
+}
+
+function roundNumber(value: number) {
+  return Math.round(value * 100) / 100;
 }
 
 function filteredFallbackMachine(machines: Machine[]) {
