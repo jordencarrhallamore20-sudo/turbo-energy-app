@@ -47,21 +47,124 @@ type DashboardClientProps = {
 
 type RegisterFilter = "ALL" | "AVAILABLE" | "DOWN" | "MAJOR";
 
+// Fixed departments from the uploaded department allocation workbook.
 const departments = ["Mining", "Logistics", "Plant", "Workshop", "Engineering & Civils", "Stores & Procurement", "Admin"];
 const onlineStatuses = ["Online", "Offline", "Standby"];
 
 const FIXED_DEPARTMENT_BY_FLEET: Record<string, string> = {
+  "ABH4195": "Admin",
+  "AEK9938": "Admin",
+  "AEX0450": "Admin",
+  "AEX0451": "Admin",
+  "AFC9890": "Admin",
+  "AFE5504": "Admin",
+  "AFK8279": "Admin",
+  "AFN0307": "Admin",
+  "AFR5684": "Admin",
+  "AFX0359": "Admin",
+  "AFX1489": "Admin",
+  "AFX3400": "Admin",
+  "AFX7681": "Admin",
+  "AGA5421": "Admin",
+  "AGA5514": "Admin",
+  "AGA5529": "Admin",
+  "AGE5580": "Admin",
+  "AGE7705": "Admin",
+  "AGP4457": "Admin",
+  "AGP4458": "Admin",
+  "AGP9562": "Admin",
+  "AGQ7369": "Admin",
+  "AGQ7370": "Admin",
+  "AHH2977": "Admin",
+  "CARGO05": "Engineering & Civils",
+  "CH44": "Logistics",
+  "CH46": "Logistics",
+  "FEL02": "Plant",
+  "FEL04": "Plant",
+  "FEL05": "Plant",
+  "FEL06": "Plant",
+  "FEL07": "Plant",
+  "FEL08": "Plant",
+  "FEL09": "Plant",
+  "FEL10": "Logistics",
+  "FEL11": "Plant",
+  "FEL12": "Plant",
+  "FEL13": "Logistics",
+  "FEL14": "Plant",
+  "FEL15": "Plant",
+  "HT01": "Plant",
+  "HT02": "Plant",
+  "HT03": "Logistics",
+  "HT04": "Logistics",
+  "HT06": "Logistics",
+  "HT07": "Logistics",
+  "HT08": "Logistics",
+  "HT09": "Logistics",
+  "HT10": "Logistics",
+  "HT11": "Logistics",
+  "HT12": "Plant",
+  "HT13": "Logistics",
+  "HT14": "Logistics",
+  "HT15": "Logistics",
+  "HT17": "Logistics",
+  "HT18": "Logistics",
+  "HT19": "Logistics",
+  "HT20": "Logistics",
+  "MWB01": "Mining",
+  "TCD01": "Mining",
+  "TCM01": "Engineering & Civils",
+  "TCT01": "Workshop",
+  "TDC01": "Mining",
+  "TDC02": "Mining",
+  "TDC03": "Mining",
+  "TDC04": "Mining",
+  "TDR01": "Mining",
+  "TDR02": "Mining",
+  "TDR03": "Mining",
   "TEX01": "Mining",
   "TEX02": "Mining",
+  "TEX03": "Plant",
   "TEX04": "Mining",
   "TEX05": "Mining",
   "TEX06": "Mining",
   "TEX07": "Mining",
+  "TFB01": "Stores & Procurement",
+  "TFB02": "Stores & Procurement",
+  "TFL01": "Stores & Procurement",
+  "TFL02": "Workshop",
+  "TG08": "Admin",
+  "TG10": "Admin",
+  "TLB01": "Engineering & Civils",
+  "TLB03": "Mining",
+  "TLG01": "Logistics",
+  "TLG02": "Logistics",
+  "TLT01": "Mining",
+  "TLT02": "Mining",
+  "TLT03": "Mining",
+  "TLT04": "Mining",
+  "TLT05": "Mining",
+  "TLT06": "Mining",
+  "TLT07": "Mining",
+  "TMA01": "Mining",
+  "TMB01": "Logistics",
   "TMD03": "Mining",
   "TMD05": "Mining",
   "TMD06": "Mining",
   "TMD07": "Mining",
   "TMD08": "Mining",
+  "TMG01": "Mining",
+  "TMR01": "Logistics",
+  "TMT01": "Engineering & Civils",
+  "TMT02": "Mining",
+  "TPT01": "Stores & Procurement",
+  "TRL01": "Logistics",
+  "TRL02": "Logistics",
+  "TRL03": "Logistics",
+  "TRL04": "Logistics",
+  "TRL05": "Logistics",
+  "TRL06": "Logistics",
+  "TRL07": "Logistics",
+  "TRL08": "Logistics",
   "TRT01": "Mining",
   "TRT02": "Mining",
   "TRT03": "Mining",
@@ -82,124 +185,22 @@ const FIXED_DEPARTMENT_BY_FLEET: Record<string, string> = {
   "TRT18": "Mining",
   "TRT19": "Mining",
   "TRT20": "Mining",
-  "MWB01": "Mining",
-  "TMG01": "Mining",
-  "TLB03": "Mining",
-  "TMT02": "Mining",
+  "TT01": "Engineering & Civils",
+  "TWC01": "Workshop",
+  "TWC02": "Logistics",
   "TWP01": "Mining",
   "TWP02": "Mining",
   "TWP03": "Mining",
+  "TWP04": "Logistics",
   "TWP07": "Mining",
   "TWP08": "Mining",
   "TWP09": "Mining",
-  "TDR01": "Mining",
-  "TDR02": "Mining",
-  "TDR03": "Mining",
-  "TDC01": "Mining",
-  "TDC02": "Mining",
-  "TDC03": "Mining",
-  "TDC04": "Mining",
-  "TLT01": "Mining",
-  "TLT02": "Mining",
-  "TLT03": "Mining",
-  "TLT04": "Mining",
-  "TLT05": "Mining",
-  "TLT06": "Mining",
-  "TLT07": "Mining",
-  "TMA01": "Mining",
-  "TCD01": "Mining",
-  "FEL10": "Logistics",
-  "FEL13": "Logistics",
-  "HT03": "Logistics",
-  "HT04": "Logistics",
-  "HT20": "Logistics",
-  "HT06": "Logistics",
-  "HT07": "Logistics",
-  "HT08": "Logistics",
-  "HT09": "Logistics",
-  "HT10": "Logistics",
-  "HT11": "Logistics",
-  "HT13": "Logistics",
-  "HT14": "Logistics",
-  "HT15": "Logistics",
-  "HT17": "Logistics",
-  "HT18": "Logistics",
-  "HT19": "Logistics",
-  "TRL01": "Logistics",
-  "TRL02": "Logistics",
-  "TRL03": "Logistics",
-  "TRL04": "Logistics",
-  "TRL05": "Logistics",
-  "TRL06": "Logistics",
-  "TRL07": "Logistics",
-  "TRL08": "Logistics",
-  "WB01": "Logistics",
-  "WB02": "Logistics",
-  "WB03": "Logistics",
-  "TLG01": "Logistics",
-  "TLG02": "Logistics",
-  "CH44": "Logistics",
-  "CH46": "Logistics",
-  "TMB01": "Logistics",
-  "TWC02": "Logistics",
-  "TMR01": "Logistics",
-  "TWP04": "Logistics",
-  "TEX03": "Plant",
-  "FEL02": "Plant",
-  "FEL04": "Plant",
-  "FEL05": "Plant",
-  "FEL06": "Plant",
-  "FEL07": "Plant",
-  "FEL08": "Plant",
-  "FEL09": "Plant",
-  "FEL11": "Plant",
-  "FEL12": "Plant",
-  "FEL14": "Plant",
-  "FEL15": "Plant",
-  "HT01": "Plant",
-  "HT02": "Plant",
-  "HT12": "Plant",
   "TWS01": "Workshop",
   "TWS02": "Workshop",
   "TWS03": "Workshop",
-  "TWC01": "Workshop",
-  "TCT01": "Workshop",
-  "TFL02": "Workshop",
-  "CARGO05": "Engineering & Civils",
-  "TLB01": "Engineering & Civils",
-  "TMT01": "Engineering & Civils",
-  "TT01": "Engineering & Civils",
-  "TCM01": "Engineering & Civils",
-  "TPT01": "Stores & Procurement",
-  "TFB01": "Stores & Procurement",
-  "TFB02": "Stores & Procurement",
-  "TFL01": "Stores & Procurement",
-  "TG08": "Admin",
-  "TG10": "Admin",
-  "AFE5504": "Admin",
-  "AFN0307": "Admin",
-  "AFR5684": "Admin",
-  "AFX1489": "Admin",
-  "AFC9890": "Admin",
-  "AEX0451": "Admin",
-  "AFK8279": "Admin",
-  "AFX0359": "Admin",
-  "AFX3400": "Admin",
-  "ABH4195": "Admin",
-  "AEK9938": "Admin",
-  "AGA5529": "Admin",
-  "AGA5514": "Admin",
-  "AGA5421": "Admin",
-  "AGE7705": "Admin",
-  "AGP9562": "Admin",
-  "AGE5580": "Admin",
-  "AGP4457": "Admin",
-  "AGP4458": "Admin",
-  "AGQ7369": "Admin",
-  "AGQ7370": "Admin",
-  "AFX7681": "Admin",
-  "AEX0450": "Admin",
-  "AHH2977": "Admin"
+  "WB01": "Logistics",
+  "WB02": "Logistics",
+  "WB03": "Logistics",
 };
 
 const sampleData: Machine[] = [
@@ -298,7 +299,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
 
     if (error) {
       console.error("Supabase load error:", error);
-      const fallback = dedupeMachinesByFleet(sampleData.map((machine) => normalizeLoadedMachine(machine)));
+      const fallback = dedupeMachinesByFleet(sampleData.map((machine) => normalizeLoadedMachine(machine, true)));
       setMachines(fallback);
       if (!selectedFleet && fallback.length > 0) setSelectedFleet(fallback[0].fleet);
       setLoadingData(false);
@@ -307,8 +308,8 @@ export default function DashboardClient({ role, username }: DashboardClientProps
 
     const loaded =
       data && data.length > 0
-        ? dedupeMachinesByFleet((data as Partial<Machine>[]).map((machine) => normalizeLoadedMachine(machine)))
-        : dedupeMachinesByFleet(sampleData.map((machine) => normalizeLoadedMachine(machine)));
+        ? dedupeMachinesByFleet((data as Partial<Machine>[]).map((machine) => normalizeLoadedMachine(machine, true)))
+        : dedupeMachinesByFleet(sampleData.map((machine) => normalizeLoadedMachine(machine, true)));
 
     setMachines(loaded);
     if (!selectedFleet && loaded.length > 0) setSelectedFleet(loaded[0].fleet);
@@ -356,8 +357,8 @@ export default function DashboardClient({ role, username }: DashboardClientProps
     await loadHistoryFromSupabase();
   }
 
-  async function saveMachines(data: Machine[]) {
-    const normalized = dedupeMachinesByFleet(data.map((machine) => normalizeLoadedMachine(machine)));
+  async function saveMachines(data: Machine[], forceFixedDepartments = true) {
+    const normalized = dedupeMachinesByFleet(data.map((machine) => normalizeLoadedMachine(machine, forceFixedDepartments)));
     setMachines(normalized);
 
     const payload = normalized.map((machine) => ({
@@ -532,17 +533,35 @@ export default function DashboardClient({ role, username }: DashboardClientProps
   const departmentAvailability = useMemo(() => {
     const groups: Record<string, Machine[]> = {};
     machines.forEach((machine) => {
-      if (!groups[machine.department]) groups[machine.department] = [];
-      groups[machine.department].push(machine);
+      const department = machine.department || "Unassigned";
+      if (!groups[department]) groups[department] = [];
+      groups[department].push(machine);
     });
 
-    return Object.entries(groups).map(([department, items]) => {
-      const active = items.filter((m) => !m.majorRepair);
-      const available = active.filter((m) => m.status.toLowerCase().includes("avail")).length;
-      const percent = active.length === 0 ? 0 : Math.round((available / active.length) * 100);
-      return { department, total: items.length, active: active.length, available, percent };
-    });
+    const orderedDepartments = [
+      ...departments,
+      ...Object.keys(groups).filter((department) => !departments.includes(department)).sort(),
+    ];
+
+    return orderedDepartments
+      .filter((department) => (groups[department] || []).length > 0)
+      .map((department) => {
+        const items = groups[department] || [];
+        const active = items.filter((m) => !m.majorRepair);
+        const available = active.filter((m) => m.status.toLowerCase().includes("avail")).length;
+        const percent = active.length === 0 ? 0 : Math.round((available / active.length) * 100);
+        return { department, total: items.length, active: active.length, available, percent };
+      });
   }, [machines]);
+
+  useEffect(() => {
+    if (departmentAvailability.length === 0) return;
+
+    const exists = departmentAvailability.some((item) => item.department === selectedDepartment);
+    if (!exists) {
+      setSelectedDepartment(departmentAvailability[0].department);
+    }
+  }, [departmentAvailability, selectedDepartment]);
 
   const selectedDepartmentMachines = useMemo(() => {
     return machines.filter((machine) => machine.department === selectedDepartment);
@@ -598,7 +617,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
         : machine
     );
 
-    const saved = await saveMachines(updated);
+    const saved = await saveMachines(updated, false);
     if (saved) {
       await addHistoryEntry({
         action: "Updated machine field",
@@ -633,7 +652,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
       });
     });
 
-    const saved = await saveMachines(updated);
+    const saved = await saveMachines(updated, false);
     if (saved) {
       await addHistoryEntry({
         action: enabled ? "Moved to major repair" : "Removed from major repair",
@@ -2161,9 +2180,9 @@ function normalizeLoadedMachine(machine: Partial<Machine>, forceFixedDepartment 
     status,
     location: String(machine.location || "Hwange"),
     department: String(
-      forceFixedDepartment
-        ? getFixedDepartmentForFleet(fleet) || machine.department || inferDepartmentFromType(normalizedType)
-        : machine.department || getFixedDepartmentForFleet(fleet) || inferDepartmentFromType(normalizedType)
+      getFixedDepartmentForFleet(fleet) ||
+        (forceFixedDepartment ? "" : machine.department) ||
+        inferDepartmentFromType(normalizedType)
     ),
     availability: Number(machine.availability || 0),
     updated: String(machine.updated || new Date().toLocaleDateString()),
