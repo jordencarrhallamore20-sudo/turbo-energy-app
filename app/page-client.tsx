@@ -518,7 +518,10 @@ export default function DashboardClient({ role, username }: DashboardClientProps
         machine.department.toLowerCase().includes(term) ||
         machine.repairReason.toLowerCase().includes(term) ||
         machine.downtimeReason.toLowerCase().includes(term) ||
-        machine.onlineStatus.toLowerCase().includes(term)
+        machine.onlineStatus.toLowerCase().includes(term) ||
+        String(machine.availability).toLowerCase().includes(term) ||
+        String(machine.hoursWorked).toLowerCase().includes(term) ||
+        String(machine.hoursDown).toLowerCase().includes(term)
       );
     });
   }, [adminSearch, machines]);
@@ -1021,6 +1024,26 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                 <div className="sectionHeading">
                   <h2>Admin Machine Controls</h2>
                   <p>Edit hours, online status, downtime reason, department, and repairs.</p>
+                </div>
+
+                <div className="adminSearchRow">
+                  <input
+                    className="textInput"
+                    placeholder="Search fleet number, machine type, status, department, availability, reason..."
+                    value={adminSearch}
+                    onChange={(e) => setAdminSearch(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="miniAction"
+                    onClick={() => setAdminSearch("")}
+                  >
+                    Clear
+                  </button>
+                </div>
+
+                <div className="adminSearchCount">
+                  Showing {filteredAdminMachines.length} of {machines.length} machines
                 </div>
 
                 <div className="adminList adminListTop">
@@ -2106,10 +2129,15 @@ export default function DashboardClient({ role, username }: DashboardClientProps
 
         .adminSearchRow {
           display: grid;
-          grid-template-columns: 1fr auto;
+          grid-template-columns: minmax(0, 1fr) auto;
           gap: 10px;
           align-items: center;
-          margin-bottom: 10px;
+          margin: 12px 0 10px;
+          position: sticky;
+          top: 0;
+          z-index: 5;
+          background: rgba(17, 42, 87, 0.98);
+          padding-bottom: 10px;
         }
 
         .adminSearchCount {
