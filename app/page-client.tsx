@@ -374,8 +374,8 @@ export default function DashboardClient({ role, username }: DashboardClientProps
       majorRepair: Boolean(machine.majorRepair),
       repairReason: machine.repairReason || "",
       sparesEta: machine.sparesEta || "",
-      hoursWorked: Number(machine.hoursWorked) || 0,
-      hoursDown: Number(machine.hoursDown) || 0,
+      hoursWorked: Number(formatNumber(machine.hoursWorked)) || 0,
+      hoursDown: Number(formatNumber(machine.hoursDown)) || 0,
       onlineStatus: machine.onlineStatus || "Online",
       downtimeReason: machine.downtimeReason || "",
     }));
@@ -626,8 +626,8 @@ export default function DashboardClient({ role, username }: DashboardClientProps
           machine.status.toLowerCase().includes("avail")
         ).length;
         const percent = active.length === 0 ? 0 : Math.round((available / active.length) * 100);
-        const hoursWorked = roundNumber(items.reduce((sum, machine) => sum + Number(machine.hoursWorked || 0), 0));
-        const hoursDown = roundNumber(items.reduce((sum, machine) => sum + Number(machine.hoursDown || 0), 0));
+        const hoursWorked = roundNumber(items.reduce((sum, machine) => sum + Number(formatNumber(machine.hoursWorked) || 0), 0));
+        const hoursDown = roundNumber(items.reduce((sum, machine) => sum + Number(formatNumber(machine.hoursDown) || 0), 0));
 
         return {
           type,
@@ -744,8 +744,8 @@ export default function DashboardClient({ role, username }: DashboardClientProps
         machine.majorRepair,
         machine.repairReason,
         machine.sparesEta,
-        machine.hoursWorked,
-        machine.hoursDown,
+        formatNumber(machine.hoursWorked),
+        formatNumber(machine.hoursDown),
         machine.onlineStatus,
         machine.downtimeReason,
         machine.updated,
@@ -1089,7 +1089,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                           <input
                             className="textInput"
                             type="number"
-                            value={machine.hoursWorked}
+                            value={formatNumber(machine.hoursWorked)}
                             onChange={(e) => void updateMachineField(machine.fleet, "hoursWorked", Number(e.target.value || 0))}
                           />
                         </div>
@@ -1099,7 +1099,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                           <input
                             className="textInput"
                             type="number"
-                            value={machine.hoursDown}
+                            value={formatNumber(machine.hoursDown)}
                             onChange={(e) => void updateMachineField(machine.fleet, "hoursDown", Number(e.target.value || 0))}
                           />
                         </div>
@@ -1231,7 +1231,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                             </span>
                           </td>
                           <td>{machine.onlineStatus}</td>
-                          <td>{machine.hoursDown}</td>
+                          <td>{formatNumber(machine.hoursDown)}</td>
                           <td>{machine.downtimeReason || "-"}</td>
                           <td>{machine.repairReason || "-"}</td>
                           <td>{machine.sparesEta || "-"}</td>
@@ -1418,8 +1418,8 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                         <span>Available: {item.available}</span>
                       </div>
                       <div className="departmentMeta">
-                        <span>Worked: {item.hoursWorked}</span>
-                        <span>Down: {item.hoursDown}</span>
+                        <span>Worked: {formatNumber(item.hoursWorked)}</span>
+                        <span>Down: {formatNumber(item.hoursDown)}</span>
                       </div>
                     </div>
                   ))
@@ -1454,9 +1454,9 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                             {machine.majorRepair ? "Major Repair" : machine.status}
                           </span>
                         </td>
-                        <td>{machine.availability}%</td>
-                        <td>{machine.hoursWorked}</td>
-                        <td>{machine.hoursDown}</td>
+                        <td>{formatNumber(machine.availability)}%</td>
+                        <td>{formatNumber(machine.hoursWorked)}</td>
+                        <td>{formatNumber(machine.hoursDown)}</td>
                         <td>{machine.onlineStatus}</td>
                         <td>{machine.downtimeReason || machine.repairReason || "-"}</td>
                       </tr>
@@ -1582,7 +1582,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                         <td>{machine.machineType}</td>
                         <td><span className={`statusPill ${getStatusClass(machine.status, machine.majorRepair)}`}>{machine.status}</span></td>
                         <td>{machine.location}</td>
-                        <td>{machine.availability}%</td>
+                        <td>{formatNumber(machine.availability)}%</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1662,9 +1662,9 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                         <td>{machine.fleet}</td>
                         <td>{machine.machineType}</td>
                         <td><span className={`statusPill ${getStatusClass(machine.status, machine.majorRepair)}`}>{machine.majorRepair ? "Major Repair" : machine.status}</span></td>
-                        <td>{machine.availability}%</td>
-                        <td>{machine.hoursWorked}</td>
-                        <td>{machine.hoursDown}</td>
+                        <td>{formatNumber(machine.availability)}%</td>
+                        <td>{formatNumber(machine.hoursWorked)}</td>
+                        <td>{formatNumber(machine.hoursDown)}</td>
                         <td>{machine.onlineStatus}</td>
                         <td>{machine.downtimeReason || machine.repairReason || "-"}</td>
                         <td>{machine.department}</td>
@@ -2312,8 +2312,8 @@ function normalizeLoadedMachine(machine: Partial<Machine>, forceFixedDepartment 
     majorRepair: Boolean(machine.majorRepair),
     repairReason: String(machine.repairReason || ""),
     sparesEta: String(machine.sparesEta || ""),
-    hoursWorked: Number(machine.hoursWorked || 0),
-    hoursDown: Number(machine.hoursDown || 0),
+    hoursWorked: Number(formatNumber(machine.hoursWorked) || 0),
+    hoursDown: Number(formatNumber(machine.hoursDown) || 0),
     onlineStatus: String(machine.onlineStatus || (status.toLowerCase().includes("avail") ? "Online" : "Offline")),
     downtimeReason: String(machine.downtimeReason || ""),
   };
@@ -2444,6 +2444,11 @@ function formatHistoryDate(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
+}
+
+function formatNumber(value: number) {
+  if (value === null || value === undefined || isNaN(value)) return "0.0";
+  return Number(value).toFixed(1);
 }
 
 function roundNumber(value: number) {
