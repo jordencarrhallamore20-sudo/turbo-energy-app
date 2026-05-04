@@ -11,10 +11,5 @@ export default async function Page() {
   }
 
   // ✅ Only render dashboard AFTER session confirmed
-  return (
-    <DashboardClient
-      role={(session.user as { role?: string }).role ?? "user"}
-      username={session.user.name ?? "User"}
-    />
-  );
+  return <DashboardClient />;
 }
