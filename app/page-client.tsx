@@ -321,6 +321,20 @@ function availabilityValue(machine: MachineRow): number {
   return machine.normalizedStatus === "AVAILABLE" ? 100 : 0;
 }
 
+function groupAvailabilityPercent(items: MachineRow[]): number {
+  const active = items.filter((machine) => !machine.majorRepair);
+  if (active.length === 0) return 0;
+  return active.reduce((sum, machine) => sum + availabilityValue(machine), 0) / active.length;
+}
+
+function activeCount(items: MachineRow[]): number {
+  return items.filter((machine) => !machine.majorRepair).length;
+}
+
+function availableCount(items: MachineRow[]): number {
+  return items.filter((machine) => !machine.majorRepair && machine.normalizedStatus === "AVAILABLE").length;
+}
+
 function buildReportSummary(
   items: MachineRow[],
   getName: (machine: MachineRow) => string
@@ -608,6 +622,40 @@ export default function DashboardPage() {
       (machine) => `${machine.department || "Unassigned"} - ${machine.machineType || "UNKNOWN"}`
     );
   }, [reportMachines]);
+
+  const reportMachineComparison = useMemo(() => {
+    return reportMachines
+      .slice()
+      .sort((a, b) => a.fleet.localeCompare(b.fleet))
+      .map((machine) => {
+        const machineType = machine.machineType || "UNKNOWN";
+        const department = machine.department || "Unassigned";
+        const sameTypeMachines = machines.filter((item) => (item.machineType || "UNKNOWN") === machineType);
+        const departmentMachines = machines.filter((item) => (item.department || "Unassigned") === department);
+        const departmentTypeMachines = machines.filter(
+          (item) => (item.department || "Unassigned") === department && (item.machineType || "UNKNOWN") === machineType
+        );
+
+        return {
+          fleet: machine.fleet,
+          machineType,
+          department,
+          status: statusLabel(machine),
+          included: machine.majorRepair ? "No" : "Yes",
+          machinePercent: machine.majorRepair ? 0 : availabilityValue(machine),
+          sameTypePercent: groupAvailabilityPercent(sameTypeMachines),
+          sameTypeAvailable: availableCount(sameTypeMachines),
+          sameTypeActive: activeCount(sameTypeMachines),
+          departmentPercent: groupAvailabilityPercent(departmentMachines),
+          departmentAvailable: availableCount(departmentMachines),
+          departmentActive: activeCount(departmentMachines),
+          departmentTypePercent: groupAvailabilityPercent(departmentTypeMachines),
+          departmentTypeAvailable: availableCount(departmentTypeMachines),
+          departmentTypeActive: activeCount(departmentTypeMachines),
+          reason: machine.repairReason || machine.downtimeReason || "-",
+        };
+      });
+  }, [machines, reportMachines]);
 
   const reportHistory = useMemo(() => {
     const selected = new Set(reportSelectedFleets);
@@ -951,6 +999,22 @@ export default function DashboardPage() {
       roundOne(item.hoursDown),
     ]);
 
+    const comparisonRows = reportMachineComparison.map((item) => [
+      item.fleet,
+      item.machineType,
+      item.department,
+      item.status,
+      item.included,
+      `${roundOne(item.machinePercent)}%`,
+      `${roundOne(item.sameTypePercent)}%`,
+      `${item.sameTypeAvailable}/${item.sameTypeActive}`,
+      `${roundOne(item.departmentPercent)}%`,
+      `${item.departmentAvailable}/${item.departmentActive}`,
+      `${roundOne(item.departmentTypePercent)}%`,
+      `${item.departmentTypeAvailable}/${item.departmentTypeActive}`,
+      item.reason,
+    ]);
+
     const historyRows = reportHistory.map((item) => [
       item.createdAt,
       item.fleet,
@@ -975,6 +1039,24 @@ export default function DashboardPage() {
       ["Down/offline active machines", reportDownMachines.length],
       ["Major repair excluded", reportMachines.filter((machine) => machine.majorRepair).length],
       ["Overall availability", `${roundOne(reportOverallAvailability)}%`],
+      [],
+      ["Machine / Same Type / Department Percentage Snapshot"],
+      [
+        "Fleet",
+        "Type",
+        "Department",
+        "Status",
+        "Included",
+        "Machine %",
+        "Same Type %",
+        "Same Type Available/Active",
+        "Department %",
+        "Department Available/Active",
+        "Department + Type %",
+        "Department + Type Available/Active",
+        "Reason",
+      ],
+      ...comparisonRows,
       [],
       ["Machine Detail"],
       ["Fleet", "Type", "Status", "Department", "Location", "% Available", "Hours Worked", "Hours Down", "Reason", "Included"],
@@ -1144,7 +1226,7 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      <section className="panel report-panel">
+      <section className="panel report-panel" id="availability-report">
         <div className="panel-heading">
           <div>
             <h2>Report Generator</h2>
@@ -1218,6 +1300,58 @@ export default function DashboardPage() {
             <span>Availability</span>
             <strong>{formatPercent(reportOverallAvailability)}</strong>
           </div>
+        </div>
+
+        <h3 className="report-section-title">Machine / Same Type / Department Percentages</h3>
+        <div className="table-wrap report-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Fleet</th>
+                <th>Type</th>
+                <th>Department</th>
+                <th>Status</th>
+                <th>Machine %</th>
+                <th>Same Type %</th>
+                <th>Same Type Count</th>
+                <th>Department %</th>
+                <th>Department Count</th>
+                <th>Dept + Type %</th>
+                <th>Dept + Type Count</th>
+                <th>Included</th>
+              </tr>
+            </thead>
+            <tbody>
+              {reportMachineComparison.length === 0 ? (
+                <tr>
+                  <td colSpan={12}>No machines selected.</td>
+                </tr>
+              ) : (
+                reportMachineComparison.map((item) => (
+                  <tr key={`report-compare-${item.fleet}`}>
+                    <td>{item.fleet}</td>
+                    <td>{item.machineType}</td>
+                    <td>{item.department}</td>
+                    <td>{item.status}</td>
+                    <td>{item.included === "No" ? "Excluded" : formatPercent(item.machinePercent)}</td>
+                    <td>{formatPercent(item.sameTypePercent)}</td>
+                    <td>
+                      {item.sameTypeAvailable}/{item.sameTypeActive}
+                    </td>
+                    <td>{formatPercent(item.departmentPercent)}</td>
+                    <td>
+                      {item.departmentAvailable}/{item.departmentActive}
+                    </td>
+                    <td>{formatPercent(item.departmentTypePercent)}</td>
+                    <td>
+                      {item.departmentTypeAvailable}/{item.departmentTypeActive}
+                    </td>
+                    <td>{item.included}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
 
         <h3 className="report-section-title">Machine Detail</h3>
@@ -2302,7 +2436,7 @@ export default function DashboardPage() {
         }
 
         .report-table-wrap table {
-          min-width: 900px;
+          min-width: 1120px;
         }
 
         .report-two-column {
@@ -2311,15 +2445,32 @@ export default function DashboardPage() {
         }
 
         @media print {
-          .upload-panel,
-          .admin-panel,
-          .secondary-button,
-          .good-button,
-          .warning-button,
-          .danger-button,
+          :global(body *) {
+            visibility: hidden !important;
+          }
+
+          #availability-report,
+          #availability-report * {
+            visibility: visible !important;
+          }
+
+          #availability-report {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            border: 0;
+            box-shadow: none;
+            background: white;
+          }
+
+          #availability-report .button-row,
+          #availability-report .report-control-grid,
+          #availability-report .report-button-row,
           input,
           textarea,
-          select {
+          select,
+          button {
             display: none !important;
           }
 
@@ -2328,10 +2479,14 @@ export default function DashboardPage() {
             background: white;
           }
 
-          .hero-card,
-          .panel,
-          .kpi-card {
-            box-shadow: none;
+          .report-table-wrap {
+            overflow: visible;
+          }
+
+          .report-table-wrap table {
+            min-width: 0;
+            width: 100%;
+            font-size: 10px;
           }
         }
 
@@ -2385,5 +2540,6 @@ export default function DashboardPage() {
     </main>
   );
 }
+
 
 
