@@ -1233,7 +1233,28 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                   <p>Edit hours, online status, downtime reason, department, and repairs.</p>
                 </div>
 
+                <div className="adminSearchRow">
+                  <input
+                    className="textInput adminSearchInput"
+                    type="search"
+                    value={adminSearch}
+                    onChange={(e) => setAdminSearch(e.target.value)}
+                    placeholder="Search admin controls by fleet, type, department, status, reason, or online status..."
+                  />
+                  <button className="pillButton" onClick={() => setAdminSearch("")}>
+                    Clear Search
+                  </button>
+                </div>
+
+                <div className="adminSearchCount">
+                  Showing {filteredAdminMachines.length} of {machines.length} machine(s). Major repair machines stay visible here but are excluded from availability percentages.
+                </div>
+
                 <div className="adminList adminListTop">
+                  {filteredAdminMachines.length === 0 && (
+                    <div className="mutedCard">No machines match your admin search.</div>
+                  )}
+
                   {filteredAdminMachines.map((machine) => (
                     <div key={machine.fleet} className="adminCard">
                       <div className="adminTop">
@@ -2459,10 +2480,18 @@ export default function DashboardClient({ role, username }: DashboardClientProps
 
         .adminSearchRow {
           display: grid;
-          grid-template-columns: 1fr auto;
+          grid-template-columns: minmax(0, 1fr) auto;
           gap: 10px;
           align-items: center;
-          margin-bottom: 10px;
+          margin: 12px 0 10px;
+          padding: 10px;
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          border-radius: 16px;
+          background: rgba(255, 255, 255, 0.04);
+        }
+
+        .adminSearchInput {
+          min-height: 46px;
         }
 
         .adminSearchCount {
@@ -2470,6 +2499,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
           font-size: 13px;
           font-weight: 800;
           margin-bottom: 12px;
+          line-height: 1.4;
         }
 
         .adminList { display: flex; flex-direction: column; gap: 12px; max-height: 760px; overflow: auto; padding-right: 4px; }
