@@ -300,44 +300,6 @@ function statusLabel(machine: MachineRow): string {
   return machine.status || "Unknown";
 }
 
-function clampPercent(value: number): number {
-  if (!Number.isFinite(value)) return 0;
-  return Math.max(0, Math.min(100, value));
-}
-
-function machineReportAvailability(machine: MachineRow): number {
-  if (machine.majorRepair) return 0;
-  if (machine.availability !== null && machine.availability !== undefined) {
-    return clampPercent(machine.availability);
-  }
-  return machine.normalizedStatus === "AVAILABLE" ? 100 : 0;
-}
-
-function parseReportDate(value: string): Date | null {
-  const text = clean(value);
-  if (!text) return null;
-  const parsed = new Date(text);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
-function inReportDateRange(value: string, from: string, to: string): boolean {
-  if (!from && !to) return true;
-
-  const parsed = parseReportDate(value);
-  if (!parsed) return true;
-
-  if (from) {
-    const start = new Date(`${from}T00:00:00`);
-    if (parsed < start) return false;
-  }
-
-  if (to) {
-    const end = new Date(`${to}T23:59:59`);
-    if (parsed > end) return false;
-  }
-
-  return true;
-}
 
 type ReportSummaryRow = {
   name: string;
@@ -345,47 +307,72 @@ type ReportSummaryRow = {
   active: number;
   available: number;
   down: number;
-  excluded: number;
+  majorExcluded: number;
   percent: number;
   hoursWorked: number;
   hoursDown: number;
 };
 
-function buildReportSummary(
-  machines: MachineRow[],
-  groupName: (machine: MachineRow) => string
-): ReportSummaryRow[] {
-  const groups = new Map<string, MachineRow[]>();
+function availabilityValue(machine: MachineRow): number {
+  if (machine.majorRepair) return 0;
+  if (machine.availability !== null && Number.isFinite(machine.availability)) {
+    return Math.max(0, Math.min(100, machine.availability));
+  }
+  return machine.normalizedStatus === "AVAILABLE" ? 100 : 0;
+}
 
-  machines.forEach((machine) => {
-    const name = clean(groupName(machine)) || "Unassigned";
-    const current = groups.get(name) || [];
-    current.push(machine);
+function buildReportSummary(
+  items: MachineRow[],
+  getName: (machine: MachineRow) => string
+): ReportSummaryRow[] {
+  const groups = new Map<string, ReportSummaryRow & { availabilityTotal: number }>();
+
+  items.forEach((machine) => {
+    const name = clean(getName(machine)) || "Unassigned";
+    const current =
+      groups.get(name) ||
+      {
+        name,
+        total: 0,
+        active: 0,
+        available: 0,
+        down: 0,
+        majorExcluded: 0,
+        percent: 0,
+        hoursWorked: 0,
+        hoursDown: 0,
+        availabilityTotal: 0,
+      };
+
+    current.total += 1;
+
+    if (machine.majorRepair) {
+      current.majorExcluded += 1;
+    } else {
+      current.active += 1;
+      current.availabilityTotal += availabilityValue(machine);
+      current.hoursWorked += machine.hoursWorked || 0;
+      current.hoursDown += machine.hoursDown || 0;
+
+      if (machine.normalizedStatus === "AVAILABLE") current.available += 1;
+      else current.down += 1;
+    }
+
     groups.set(name, current);
   });
 
-  return Array.from(groups.entries())
-    .map(([name, items]) => {
-      const active = items.filter((machine) => !machine.majorRepair);
-      const available = active.filter((machine) => machine.normalizedStatus === "AVAILABLE").length;
-      const down = active.length - available;
-      const excluded = items.length - active.length;
-      const percent = active.length === 0 ? 0 : (available / active.length) * 100;
-      const hoursWorked = active.reduce((sum, machine) => sum + (machine.hoursWorked || 0), 0);
-      const hoursDown = active.reduce((sum, machine) => sum + (machine.hoursDown || 0), 0);
-
-      return {
-        name,
-        total: items.length,
-        active: active.length,
-        available,
-        down,
-        excluded,
-        percent,
-        hoursWorked,
-        hoursDown,
-      };
-    })
+  return Array.from(groups.values())
+    .map((item) => ({
+      name: item.name,
+      total: item.total,
+      active: item.active,
+      available: item.available,
+      down: item.down,
+      majorExcluded: item.majorExcluded,
+      percent: item.active === 0 ? 0 : item.availabilityTotal / item.active,
+      hoursWorked: item.hoursWorked,
+      hoursDown: item.hoursDown,
+    }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -413,7 +400,6 @@ export default function DashboardPage() {
   const [reportFrom, setReportFrom] = useState("");
   const [reportTo, setReportTo] = useState("");
   const [reportGeneratedAt, setReportGeneratedAt] = useState("");
-  const [reportReady, setReportReady] = useState(false);
 
   useEffect(() => {
     setMachines(safeLocalStorageRead<MachineRow[]>(STORAGE_MACHINES, []));
@@ -577,16 +563,15 @@ export default function DashboardPage() {
     return history.filter((item) => item.fleet === selectedFleet).slice(0, 80);
   }, [history, selectedFleet]);
 
+
   const reportFleetOptions = useMemo(() => {
     return machines.slice().sort((a, b) => a.fleet.localeCompare(b.fleet));
   }, [machines]);
 
   const reportMachines = useMemo(() => {
+    if (reportSelectedFleets.length === 0) return machines;
     const selected = new Set(reportSelectedFleets);
-    const selectedOnly =
-      selected.size === 0 ? machines : machines.filter((machine) => selected.has(machine.fleet));
-
-    return selectedOnly.slice().sort((a, b) => a.fleet.localeCompare(b.fleet));
+    return machines.filter((machine) => selected.has(machine.fleet));
   }, [machines, reportSelectedFleets]);
 
   const reportActiveMachines = useMemo(() => {
@@ -597,8 +582,20 @@ export default function DashboardPage() {
     return reportActiveMachines.filter((machine) => machine.normalizedStatus === "AVAILABLE");
   }, [reportActiveMachines]);
 
-  const reportTypeSummary = useMemo(() => {
-    return buildReportSummary(reportMachines, (machine) => machine.machineType || machine.type || "UNKNOWN");
+  const reportDownMachines = useMemo(() => {
+    return reportActiveMachines.filter((machine) => machine.normalizedStatus !== "AVAILABLE");
+  }, [reportActiveMachines]);
+
+  const reportOverallAvailability = useMemo(() => {
+    if (reportActiveMachines.length === 0) return 0;
+    return (
+      reportActiveMachines.reduce((sum, machine) => sum + availabilityValue(machine), 0) /
+      reportActiveMachines.length
+    );
+  }, [reportActiveMachines]);
+
+  const reportMachineTypeSummary = useMemo(() => {
+    return buildReportSummary(reportMachines, (machine) => machine.machineType || "UNKNOWN");
   }, [reportMachines]);
 
   const reportDepartmentSummary = useMemo(() => {
@@ -608,23 +605,34 @@ export default function DashboardPage() {
   const reportDepartmentTypeSummary = useMemo(() => {
     return buildReportSummary(
       reportMachines,
-      (machine) => `${machine.department || "Unassigned"} - ${machine.machineType || machine.type || "UNKNOWN"}`
+      (machine) => `${machine.department || "Unassigned"} - ${machine.machineType || "UNKNOWN"}`
     );
   }, [reportMachines]);
 
   const reportHistory = useMemo(() => {
     const selected = new Set(reportSelectedFleets);
 
-    return history
-      .filter((item) => selected.size === 0 || selected.has(item.fleet) || item.fleet === "SYSTEM")
-      .filter((item) => inReportDateRange(item.createdAt, reportFrom, reportTo))
-      .slice(0, 150);
-  }, [history, reportFrom, reportSelectedFleets, reportTo]);
+    return history.filter((item) => {
+      if (selected.size > 0 && !selected.has(item.fleet)) return false;
 
-  const reportOverallAvailability = useMemo(() => {
-    if (reportActiveMachines.length === 0) return 0;
-    return (reportAvailableMachines.length / reportActiveMachines.length) * 100;
-  }, [reportActiveMachines.length, reportAvailableMachines.length]);
+      if (!reportFrom && !reportTo) return true;
+
+      const date = new Date(item.createdAt);
+      if (Number.isNaN(date.getTime())) return true;
+
+      if (reportFrom) {
+        const start = new Date(`${reportFrom}T00:00:00`);
+        if (date < start) return false;
+      }
+
+      if (reportTo) {
+        const end = new Date(`${reportTo}T23:59:59`);
+        if (date > end) return false;
+      }
+
+      return true;
+    });
+  }, [history, reportFrom, reportSelectedFleets, reportTo]);
 
   function addHistory(entry: HistoryRow) {
     setHistory((previous) => [entry, ...previous].slice(0, 1000));
@@ -876,41 +884,87 @@ export default function DashboardPage() {
     window.print();
   }
 
+  function clearFilters() {
+    setFilter("ALL");
+    setDepartmentFilter("");
+    setMainSearch("");
+  }
+
+
   function handleReportMachineSelection(event: ChangeEvent<HTMLSelectElement>) {
-    const values = Array.from(event.target.selectedOptions).map((option) => option.value);
-    setReportSelectedFleets(values);
-    setReportReady(false);
+    const selected = Array.from(event.target.selectedOptions).map((option) => option.value);
+    setReportSelectedFleets(selected);
   }
 
   function generateAvailabilityReport() {
     setReportGeneratedAt(new Date().toLocaleString());
-    setReportReady(true);
-    setNotice(`Report generated for ${reportMachines.length} machine${reportMachines.length === 1 ? "" : "s"}.`);
+    setNotice("Report generated. Major repair machines are shown but excluded from percentage calculations.");
   }
 
-  function clearReportFilters() {
-    setReportSelectedFleets([]);
-    setReportFrom("");
-    setReportTo("");
-    setReportGeneratedAt("");
-    setReportReady(false);
-  }
+  function exportReportCsv() {
+    const generatedAt = reportGeneratedAt || new Date().toLocaleString();
+    if (!reportGeneratedAt) setReportGeneratedAt(generatedAt);
 
-  function printAvailabilityReport() {
-    setReportGeneratedAt(new Date().toLocaleString());
-    setReportReady(true);
-    setTimeout(() => window.print(), 100);
-  }
+    const machineRows = reportMachines.map((machine) => [
+      machine.fleet,
+      machine.machineType,
+      statusLabel(machine),
+      machine.department,
+      machine.location,
+      machine.majorRepair ? "Excluded" : `${roundOne(availabilityValue(machine))}%`,
+      roundOne(machine.hoursWorked),
+      roundOne(machine.hoursDown),
+      machine.repairReason || machine.downtimeReason || "-",
+      machine.majorRepair ? "No" : "Yes",
+    ]);
 
-  function exportAvailabilityReportCsv() {
-    const generated = new Date().toLocaleString();
-    setReportGeneratedAt(generated);
-    setReportReady(true);
+    const typeRows = reportMachineTypeSummary.map((item) => [
+      item.name,
+      item.active,
+      item.available,
+      item.down,
+      item.majorExcluded,
+      `${roundOne(item.percent)}%`,
+      roundOne(item.hoursWorked),
+      roundOne(item.hoursDown),
+    ]);
 
-    const rows: unknown[][] = [
+    const departmentRows = reportDepartmentSummary.map((item) => [
+      item.name,
+      item.active,
+      item.available,
+      item.down,
+      item.majorExcluded,
+      `${roundOne(item.percent)}%`,
+      roundOne(item.hoursWorked),
+      roundOne(item.hoursDown),
+    ]);
+
+    const departmentTypeRows = reportDepartmentTypeSummary.map((item) => [
+      item.name,
+      item.active,
+      item.available,
+      item.down,
+      item.majorExcluded,
+      `${roundOne(item.percent)}%`,
+      roundOne(item.hoursWorked),
+      roundOne(item.hoursDown),
+    ]);
+
+    const historyRows = reportHistory.map((item) => [
+      item.createdAt,
+      item.fleet,
+      item.action,
+      item.field,
+      `${item.oldValue || "-"} -> ${item.newValue || "-"}`,
+      item.notes,
+      item.actor,
+    ]);
+
+    const rows = [
       ["Turbo Energy Machine Availability Report"],
       ["Generated by", "Admin"],
-      ["Generated on", generated],
+      ["Generated on", generatedAt],
       ["Date range", `${reportFrom || "Not selected"} to ${reportTo || "Not selected"}`],
       ["Machines", reportSelectedFleets.length ? reportSelectedFleets.join(" | ") : "All machines"],
       [],
@@ -918,90 +972,29 @@ export default function DashboardPage() {
       ["Selected machines", reportMachines.length],
       ["Active machines counted", reportActiveMachines.length],
       ["Available active machines", reportAvailableMachines.length],
-      ["Down or offline active machines", reportActiveMachines.length - reportAvailableMachines.length],
-      ["Major repair excluded", reportMachines.length - reportActiveMachines.length],
-      ["Overall availability", formatPercent(reportOverallAvailability)],
+      ["Down/offline active machines", reportDownMachines.length],
+      ["Major repair excluded", reportMachines.filter((machine) => machine.majorRepair).length],
+      ["Overall availability", `${roundOne(reportOverallAvailability)}%`],
       [],
       ["Machine Detail"],
-      [
-        "Fleet",
-        "Type",
-        "Department",
-        "Location",
-        "Status",
-        "% Available",
-        "Hours Worked",
-        "Hours Down",
-        "Reason",
-        "Included In Percentage",
-      ],
-      ...reportMachines.map((machine) => [
-        machine.fleet,
-        machine.machineType,
-        machine.department,
-        machine.location,
-        statusLabel(machine),
-        machine.majorRepair ? "Excluded" : formatPercent(machineReportAvailability(machine)),
-        roundOne(machine.hoursWorked),
-        roundOne(machine.hoursDown),
-        machine.repairReason || machine.downtimeReason || "-",
-        machine.majorRepair ? "No" : "Yes",
-      ]),
+      ["Fleet", "Type", "Status", "Department", "Location", "% Available", "Hours Worked", "Hours Down", "Reason", "Included"],
+      ...machineRows,
       [],
       ["Availability by Machine Type"],
-      ["Machine Type", "Total", "Active", "Available", "Down", "Major Repair Excluded", "% Available", "Hours Worked", "Hours Down"],
-      ...reportTypeSummary.map((item) => [
-        item.name,
-        item.total,
-        item.active,
-        item.available,
-        item.down,
-        item.excluded,
-        formatPercent(item.percent),
-        roundOne(item.hoursWorked),
-        roundOne(item.hoursDown),
-      ]),
+      ["Machine Type", "Active", "Available", "Down/Offline", "Major Repair Excluded", "% Available", "Hours Worked", "Hours Down"],
+      ...typeRows,
       [],
       ["Availability by Department"],
-      ["Department", "Total", "Active", "Available", "Down", "Major Repair Excluded", "% Available", "Hours Worked", "Hours Down"],
-      ...reportDepartmentSummary.map((item) => [
-        item.name,
-        item.total,
-        item.active,
-        item.available,
-        item.down,
-        item.excluded,
-        formatPercent(item.percent),
-        roundOne(item.hoursWorked),
-        roundOne(item.hoursDown),
-      ]),
+      ["Department", "Active", "Available", "Down/Offline", "Major Repair Excluded", "% Available", "Hours Worked", "Hours Down"],
+      ...departmentRows,
       [],
       ["Availability by Department and Machine Type"],
-      ["Department - Type", "Total", "Active", "Available", "Down", "Major Repair Excluded", "% Available", "Hours Worked", "Hours Down"],
-      ...reportDepartmentTypeSummary.map((item) => [
-        item.name,
-        item.total,
-        item.active,
-        item.available,
-        item.down,
-        item.excluded,
-        formatPercent(item.percent),
-        roundOne(item.hoursWorked),
-        roundOne(item.hoursDown),
-      ]),
+      ["Department - Type", "Active", "Available", "Down/Offline", "Major Repair Excluded", "% Available", "Hours Worked", "Hours Down"],
+      ...departmentTypeRows,
       [],
-      ["History In Date Range"],
-      ["Date", "Fleet", "Action", "Field", "Old Value", "New Value", "Notes", "Actor"],
-      ...reportHistory.map((item) => [
-        item.createdAt,
-        item.fleet,
-        item.action,
-        item.field,
-        item.oldValue,
-        item.newValue,
-        item.notes,
-        item.actor,
-      ]),
+      ["History Records"],
+      ["Date", "Fleet", "Action", "Field", "Change", "Notes", "Actor"],
+      ...historyRows,
     ];
 
     const csv = rows.map((row) => row.map(csvEscape).join(",")).join("\n");
@@ -1014,10 +1007,11 @@ export default function DashboardPage() {
     window.URL.revokeObjectURL(url);
   }
 
-  function clearFilters() {
-    setFilter("ALL");
-    setDepartmentFilter("");
-    setMainSearch("");
+  function clearReportFilters() {
+    setReportSelectedFleets([]);
+    setReportFrom("");
+    setReportTo("");
+    setReportGeneratedAt("");
   }
 
   return (
@@ -1150,6 +1144,273 @@ export default function DashboardPage() {
         </div>
       </section>
 
+      <section className="panel report-panel">
+        <div className="panel-heading">
+          <div>
+            <h2>Report Generator</h2>
+            <p>
+              Select machines and dates to report machine availability, same-type availability, and department
+              availability percentages.
+            </p>
+          </div>
+          <div className="button-row">
+            <button className="secondary-button" onClick={generateAvailabilityReport} type="button">
+              Generate Report
+            </button>
+            <button className="secondary-button" onClick={printReport} type="button">
+              Print Report
+            </button>
+            <button className="secondary-button" onClick={exportReportCsv} type="button">
+              Export Report CSV
+            </button>
+          </div>
+        </div>
+
+        <div className="report-control-grid">
+          <label>
+            Machines
+            <select multiple value={reportSelectedFleets} onChange={handleReportMachineSelection}>
+              {reportFleetOptions.map((machine) => (
+                <option key={machine.id} value={machine.fleet}>
+                  {machine.fleet} - {machine.machineType}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            From date
+            <input type="date" value={reportFrom} onChange={(event) => setReportFrom(event.target.value)} />
+          </label>
+
+          <label>
+            To date
+            <input type="date" value={reportTo} onChange={(event) => setReportTo(event.target.value)} />
+          </label>
+        </div>
+
+        <div className="button-row report-button-row">
+          <button className="secondary-button" onClick={clearReportFilters} type="button">
+            Clear Report Filters
+          </button>
+        </div>
+
+        <div className="active-filter report-meta">
+          <strong>Date range:</strong> {reportFrom || "Not selected"} to {reportTo || "Not selected"} |{" "}
+          <strong>Machines:</strong> {reportSelectedFleets.length ? reportSelectedFleets.join(", ") : "All machines"} |{" "}
+          <strong>Generated:</strong> {reportGeneratedAt || "Not generated yet"}
+        </div>
+
+        <div className="report-summary-grid">
+          <div className="detail-card">
+            <span>Selected machines</span>
+            <strong>{reportMachines.length}</strong>
+          </div>
+          <div className="detail-card">
+            <span>Active counted</span>
+            <strong>{reportActiveMachines.length}</strong>
+          </div>
+          <div className="detail-card">
+            <span>Available</span>
+            <strong>{reportAvailableMachines.length}</strong>
+          </div>
+          <div className="detail-card">
+            <span>Availability</span>
+            <strong>{formatPercent(reportOverallAvailability)}</strong>
+          </div>
+        </div>
+
+        <h3 className="report-section-title">Machine Detail</h3>
+        <div className="table-wrap report-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Fleet</th>
+                <th>Type</th>
+                <th>Status</th>
+                <th>Department</th>
+                <th>Location</th>
+                <th>% Available</th>
+                <th>Hours Worked</th>
+                <th>Hours Down</th>
+                <th>Reason</th>
+                <th>Included</th>
+              </tr>
+            </thead>
+            <tbody>
+              {reportMachines.length === 0 ? (
+                <tr>
+                  <td colSpan={10}>No machines selected.</td>
+                </tr>
+              ) : (
+                reportMachines.map((machine) => (
+                  <tr className={machine.majorRepair ? "major-row" : ""} key={`report-${machine.id}`}>
+                    <td>{machine.fleet}</td>
+                    <td>{machine.machineType}</td>
+                    <td>{statusLabel(machine)}</td>
+                    <td>{machine.department}</td>
+                    <td>{machine.location || "-"}</td>
+                    <td>{machine.majorRepair ? "Excluded" : `${roundOne(availabilityValue(machine))}%`}</td>
+                    <td>{roundOne(machine.hoursWorked)}</td>
+                    <td>{roundOne(machine.hoursDown)}</td>
+                    <td>{machine.repairReason || machine.downtimeReason || "-"}</td>
+                    <td>{machine.majorRepair ? "No" : "Yes"}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="two-column report-two-column">
+          <div>
+            <h3 className="report-section-title">Availability by Machine Type</h3>
+            <div className="table-wrap report-table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Machine Type</th>
+                    <th>Active</th>
+                    <th>Available</th>
+                    <th>Down</th>
+                    <th>Excluded</th>
+                    <th>% Available</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reportMachineTypeSummary.length === 0 ? (
+                    <tr>
+                      <td colSpan={6}>No report data.</td>
+                    </tr>
+                  ) : (
+                    reportMachineTypeSummary.map((item) => (
+                      <tr key={`type-${item.name}`}>
+                        <td>{item.name}</td>
+                        <td>{item.active}</td>
+                        <td>{item.available}</td>
+                        <td>{item.down}</td>
+                        <td>{item.majorExcluded}</td>
+                        <td>{formatPercent(item.percent)}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div>
+            <h3 className="report-section-title">Availability by Department</h3>
+            <div className="table-wrap report-table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Department</th>
+                    <th>Active</th>
+                    <th>Available</th>
+                    <th>Down</th>
+                    <th>Excluded</th>
+                    <th>% Available</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reportDepartmentSummary.length === 0 ? (
+                    <tr>
+                      <td colSpan={6}>No report data.</td>
+                    </tr>
+                  ) : (
+                    reportDepartmentSummary.map((item) => (
+                      <tr key={`department-${item.name}`}>
+                        <td>{item.name}</td>
+                        <td>{item.active}</td>
+                        <td>{item.available}</td>
+                        <td>{item.down}</td>
+                        <td>{item.majorExcluded}</td>
+                        <td>{formatPercent(item.percent)}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <h3 className="report-section-title">Availability by Department and Machine Type</h3>
+        <div className="table-wrap report-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Department - Type</th>
+                <th>Active</th>
+                <th>Available</th>
+                <th>Down</th>
+                <th>Excluded</th>
+                <th>% Available</th>
+                <th>Hours Worked</th>
+                <th>Hours Down</th>
+              </tr>
+            </thead>
+            <tbody>
+              {reportDepartmentTypeSummary.length === 0 ? (
+                <tr>
+                  <td colSpan={8}>No report data.</td>
+                </tr>
+              ) : (
+                reportDepartmentTypeSummary.map((item) => (
+                  <tr key={`department-type-${item.name}`}>
+                    <td>{item.name}</td>
+                    <td>{item.active}</td>
+                    <td>{item.available}</td>
+                    <td>{item.down}</td>
+                    <td>{item.majorExcluded}</td>
+                    <td>{formatPercent(item.percent)}</td>
+                    <td>{roundOne(item.hoursWorked)}</td>
+                    <td>{roundOne(item.hoursDown)}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <h3 className="report-section-title">History Records</h3>
+        <div className="table-wrap report-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Fleet</th>
+                <th>Action</th>
+                <th>Field</th>
+                <th>Change</th>
+                <th>Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {reportHistory.length === 0 ? (
+                <tr>
+                  <td colSpan={6}>No history records for this report selection.</td>
+                </tr>
+              ) : (
+                reportHistory.slice(0, 120).map((item) => (
+                  <tr key={`report-history-${item.id}`}>
+                    <td>{item.createdAt}</td>
+                    <td>{item.fleet}</td>
+                    <td>{item.action}</td>
+                    <td>{item.field}</td>
+                    <td>
+                      {item.oldValue || "-"} → {item.newValue || "-"}
+                    </td>
+                    <td>{item.notes || "-"}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       <section className="panel admin-panel">
         <div className="panel-heading">
           <div>
@@ -1275,267 +1536,6 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
-      </section>
-
-      <section className="panel report-panel">
-        <div className="panel-heading">
-          <div>
-            <h2>Report Generator</h2>
-            <p>Generate availability reports by selected machines, machine type, department, and department/type split.</p>
-          </div>
-          <div className="button-row">
-            <button className="secondary-button" onClick={generateAvailabilityReport} type="button">
-              Generate Report
-            </button>
-            <button className="secondary-button" onClick={printAvailabilityReport} type="button">
-              Print Report
-            </button>
-            <button className="secondary-button" onClick={exportAvailabilityReportCsv} type="button">
-              Export Report CSV
-            </button>
-          </div>
-        </div>
-
-        <div className="form-grid">
-          <label className="full">
-            Machines
-            <select multiple value={reportSelectedFleets} onChange={handleReportMachineSelection} size={6}>
-              {reportFleetOptions.map((machine) => (
-                <option key={machine.id} value={machine.fleet}>
-                  {machine.fleet} - {machine.machineType}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label>
-            From date
-            <input
-              type="date"
-              value={reportFrom}
-              onChange={(event) => {
-                setReportFrom(event.target.value);
-                setReportReady(false);
-              }}
-            />
-          </label>
-
-          <label>
-            To date
-            <input
-              type="date"
-              value={reportTo}
-              onChange={(event) => {
-                setReportTo(event.target.value);
-                setReportReady(false);
-              }}
-            />
-          </label>
-        </div>
-
-        <div className="active-filter">
-          <strong>Date range:</strong> {reportFrom || "Not selected"} to {reportTo || "Not selected"} · <strong>Machines:</strong>{" "}
-          {reportSelectedFleets.length ? reportSelectedFleets.join(", ") : "All machines"} · <strong>Generated:</strong>{" "}
-          {reportGeneratedAt || "Not generated yet"}
-        </div>
-
-        <div className="kpi-grid report-kpis">
-          <div className="kpi-card">
-            <span>Selected Machines</span>
-            <strong>{reportMachines.length}</strong>
-            <small>Visible in report</small>
-          </div>
-          <div className="kpi-card good">
-            <span>Active Counted</span>
-            <strong>{reportActiveMachines.length}</strong>
-            <small>Major repairs excluded</small>
-          </div>
-          <div className="kpi-card danger">
-            <span>Down / Offline</span>
-            <strong>{reportActiveMachines.length - reportAvailableMachines.length}</strong>
-            <small>Active fleet only</small>
-          </div>
-          <div className="kpi-card">
-            <span>Report Availability</span>
-            <strong>{formatPercent(reportOverallAvailability)}</strong>
-            <small>Available divided by active</small>
-          </div>
-        </div>
-
-        <div className="button-row">
-          <button className="secondary-button" onClick={clearReportFilters} type="button">
-            Clear Report Filters
-          </button>
-        </div>
-
-        {!reportReady ? (
-          <div className="empty-box">Select machines and dates, then click Generate Report.</div>
-        ) : (
-          <>
-            <div className="table-wrap report-table">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Fleet</th>
-                    <th>Type</th>
-                    <th>Department</th>
-                    <th>Status</th>
-                    <th>% Available</th>
-                    <th>Hours Worked</th>
-                    <th>Hours Down</th>
-                    <th>Reason</th>
-                    <th>Included</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {reportMachines.length === 0 ? (
-                    <tr>
-                      <td colSpan={9}>No machines found for this report.</td>
-                    </tr>
-                  ) : (
-                    reportMachines.map((machine) => (
-                      <tr className={machine.majorRepair ? "major-row" : ""} key={machine.id}>
-                        <td>{machine.fleet}</td>
-                        <td>{machine.machineType}</td>
-                        <td>{machine.department}</td>
-                        <td>
-                          <span className={machine.majorRepair ? "pill major" : "pill"}>{statusLabel(machine)}</span>
-                        </td>
-                        <td>{machine.majorRepair ? "Excluded" : formatPercent(machineReportAvailability(machine))}</td>
-                        <td>{roundOne(machine.hoursWorked)}</td>
-                        <td>{roundOne(machine.hoursDown)}</td>
-                        <td>{machine.repairReason || machine.downtimeReason || "-"}</td>
-                        <td>{machine.majorRepair ? "No" : "Yes"}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="two-column report-columns">
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Machine Type</th>
-                      <th>Active</th>
-                      <th>Available</th>
-                      <th>Down</th>
-                      <th>Excluded</th>
-                      <th>% Available</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {reportTypeSummary.map((item) => (
-                      <tr key={item.name}>
-                        <td>{item.name}</td>
-                        <td>{item.active}</td>
-                        <td>{item.available}</td>
-                        <td>{item.down}</td>
-                        <td>{item.excluded}</td>
-                        <td>{formatPercent(item.percent)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Department</th>
-                      <th>Active</th>
-                      <th>Available</th>
-                      <th>Down</th>
-                      <th>Excluded</th>
-                      <th>% Available</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {reportDepartmentSummary.map((item) => (
-                      <tr key={item.name}>
-                        <td>{item.name}</td>
-                        <td>{item.active}</td>
-                        <td>{item.available}</td>
-                        <td>{item.down}</td>
-                        <td>{item.excluded}</td>
-                        <td>{formatPercent(item.percent)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div className="table-wrap report-table">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Department - Type</th>
-                    <th>Active</th>
-                    <th>Available</th>
-                    <th>Down</th>
-                    <th>Excluded</th>
-                    <th>% Available</th>
-                    <th>Hours Worked</th>
-                    <th>Hours Down</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {reportDepartmentTypeSummary.map((item) => (
-                    <tr key={item.name}>
-                      <td>{item.name}</td>
-                      <td>{item.active}</td>
-                      <td>{item.available}</td>
-                      <td>{item.down}</td>
-                      <td>{item.excluded}</td>
-                      <td>{formatPercent(item.percent)}</td>
-                      <td>{roundOne(item.hoursWorked)}</td>
-                      <td>{roundOne(item.hoursDown)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="table-wrap report-table">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th>Fleet</th>
-                    <th>Action</th>
-                    <th>Field</th>
-                    <th>Change</th>
-                    <th>Notes</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {reportHistory.length === 0 ? (
-                    <tr>
-                      <td colSpan={6}>No history found for the selected date range.</td>
-                    </tr>
-                  ) : (
-                    reportHistory.map((item) => (
-                      <tr key={item.id}>
-                        <td>{item.createdAt}</td>
-                        <td>{item.fleet}</td>
-                        <td>{item.action}</td>
-                        <td>{item.field}</td>
-                        <td>
-                          {item.oldValue || "-"} → {item.newValue || "-"}
-                        </td>
-                        <td>{item.notes || "-"}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </>
-        )}
       </section>
 
       <section className="panel">
@@ -2267,18 +2267,47 @@ export default function DashboardPage() {
           font-weight: 700;
         }
 
-        .report-panel select[multiple] {
+        .report-control-grid {
+          display: grid;
+          grid-template-columns: minmax(280px, 1.4fr) minmax(160px, 0.6fr) minmax(160px, 0.6fr);
+          gap: 14px;
+          align-items: end;
+        }
+
+        .report-control-grid select[multiple] {
           min-height: 132px;
         }
 
-        .report-kpis {
-          grid-template-columns: repeat(4, minmax(0, 1fr));
+        .report-button-row {
           margin-top: 14px;
         }
 
-        .report-table,
-        .report-columns {
+        .report-meta {
           margin-top: 14px;
+        }
+
+        .report-summary-grid {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 12px;
+          margin: 16px 0;
+        }
+
+        .report-section-title {
+          margin-top: 18px;
+        }
+
+        .report-table-wrap {
+          margin-bottom: 16px;
+        }
+
+        .report-table-wrap table {
+          min-width: 900px;
+        }
+
+        .report-two-column {
+          margin-top: 6px;
+          margin-bottom: 6px;
         }
 
         @media print {
@@ -2332,7 +2361,9 @@ export default function DashboardPage() {
           .kpi-grid,
           .department-grid,
           .form-grid,
-          .detail-grid {
+          .detail-grid,
+          .report-control-grid,
+          .report-summary-grid {
             grid-template-columns: 1fr;
           }
 
