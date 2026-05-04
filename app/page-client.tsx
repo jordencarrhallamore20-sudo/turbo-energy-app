@@ -1084,6 +1084,11 @@ export default function DashboardClient({ role, username }: DashboardClientProps
     if (el) el.scrollIntoView({ behavior: "smooth" });
   }
 
+  function scrollToReportGenerator() {
+    const el = document.getElementById("report-generator");
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   function showAvailableOnly() {
     setRegisterFilter("AVAILABLE");
     setSelectedType("ALL");
@@ -1161,6 +1166,9 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                 Upload File
               </label>
             )}
+            <button className="pillButton reportTabButton" onClick={scrollToReportGenerator}>
+              Report Generator
+            </button>
             <button className="pillButton" onClick={showRepairsDownOnly}>
               Units Below 85%
             </button>
@@ -1821,43 +1829,80 @@ export default function DashboardClient({ role, username }: DashboardClientProps
         </main>
 
         <section className="panel reportPanel" id="report-generator">
-                      <div className="sectionHeading reportHeader">
-                        <div>
-                          <h2>Report Generator</h2>
-                          <p>Select machines and dates to report machine availability, same-type availability, and department availability percentages.</p>
-                        </div>
-                        <div className="reportActions noPrint">
-                          <button className="pillButton" onClick={() => void generateReport()}>
-                            Generate Report
-                          </button>
-                          <button className="pillButton" onClick={printReport}>
-                            Print Report
-                          </button>
-                          <button className="pillButton" onClick={exportReportCsv}>
-                            Export Report CSV
-                          </button>
-                        </div>
-                      </div>
-        
-                      <div className="reportFilters noPrint">
-                        <select
-                          multiple
-                          value={reportMachines}
-                          onChange={(e) => setReportMachines(Array.from(e.target.selectedOptions, (option) => option.value))}
-                          className="selectInput reportMachineSelect"
-                        >
-                          {filteredAdminMachines.map((machine) => (
-                            <option key={machine.fleet} value={machine.fleet}>
-                              {machine.fleet} - {machine.machineType}
-                            </option>
-                          ))}
-                        </select>
-        
-                        <input type="date" value={reportFrom} onChange={(e) => setReportFrom(e.target.value)} className="textInput" />
-                        <input type="date" value={reportTo} onChange={(e) => setReportTo(e.target.value)} className="textInput" />
-                      </div>
-        
-                      <div className="printTitle">
+          <div className="sectionHeading reportHeader">
+            <div>
+              <h2>Report Generator</h2>
+              <p>Build a report for selected machines, same machine type availability, department availability, and department + type percentage breakdowns.</p>
+            </div>
+            <div className="reportActions noPrint">
+              <button className="pillButton primaryPill" onClick={() => void generateReport()}>
+                Generate Report
+              </button>
+              <button className="pillButton" onClick={printReport}>
+                Print Report
+              </button>
+              <button className="pillButton" onClick={exportReportCsv}>
+                Export Report CSV
+              </button>
+              <button
+                className="pillButton"
+                onClick={() => {
+                  setReportMachines([]);
+                  setReportFrom("");
+                  setReportTo("");
+                  setReportData([]);
+                  setReportGeneratedAt("");
+                }}
+              >
+                Clear Filters
+              </button>
+            </div>
+          </div>
+
+          <div className="reportHelpGrid noPrint">
+            <div className="reportHelpCard">
+              <strong>1. Select machines</strong>
+              <span>Leave blank to report on the full fleet, or select one/multiple machines.</span>
+            </div>
+            <div className="reportHelpCard">
+              <strong>2. Select date range</strong>
+              <span>Leave dates blank for current availability, or add From and To dates for history records.</span>
+            </div>
+            <div className="reportHelpCard">
+              <strong>3. Generate / Print / Export</strong>
+              <span>Report includes machine %, same type %, department %, and department + type %.</span>
+            </div>
+          </div>
+
+          <div className="reportFilters noPrint">
+            <label className="reportFilterBlock reportMachineBlock">
+              <span>Machines</span>
+              <select
+                multiple
+                value={reportMachines}
+                onChange={(e) => setReportMachines(Array.from(e.target.selectedOptions, (option) => option.value))}
+                className="selectInput reportMachineSelect"
+              >
+                {filteredAdminMachines.map((machine) => (
+                  <option key={machine.fleet} value={machine.fleet}>
+                    {machine.fleet} - {machine.machineType}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="reportFilterBlock">
+              <span>From date</span>
+              <input type="date" value={reportFrom} onChange={(e) => setReportFrom(e.target.value)} className="textInput" />
+            </label>
+
+            <label className="reportFilterBlock">
+              <span>To date</span>
+              <input type="date" value={reportTo} onChange={(e) => setReportTo(e.target.value)} className="textInput" />
+            </label>
+          </div>
+
+          <div className="printTitle">
                         <h1>Turbo Energy Machine Availability Report</h1>
                         <p>
                           Date range: {reportFrom || "Not selected"} to {reportTo || "Not selected"} | Machines: {reportMachines.length > 0 ? reportMachines.join(", ") : "All machines"}
@@ -1865,34 +1910,53 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                         <p>Generated by: {username} | Generated on: {reportGeneratedAt || "Not generated yet"}</p>
                       </div>
         
-                      <div className="reportSummaryGrid">
-                        <div className="reportSummaryCard">
-                          <span>Selected Machines</span>
-                          <strong>{reportOverview.total}</strong>
-                        </div>
-                        <div className="reportSummaryCard">
-                          <span>Active Counted</span>
-                          <strong>{reportOverview.active}</strong>
-                        </div>
-                        <div className="reportSummaryCard">
-                          <span>Available</span>
-                          <strong>{reportOverview.available}</strong>
-                        </div>
-                        <div className="reportSummaryCard">
-                          <span>Availability</span>
-                          <strong>{formatNumber(reportOverview.percent)}%</strong>
-                        </div>
-                        <div className="reportSummaryCard">
-                          <span>Major Repair Excluded</span>
-                          <strong>{reportOverview.majorExcluded}</strong>
-                        </div>
-                        <div className="reportSummaryCard">
-                          <span>Hours Down</span>
-                          <strong>{formatNumber(reportOverview.hoursDown)}</strong>
-                        </div>
-                      </div>
-        
-                      <div className="reportSectionSubTitle">Machine Availability Comparison</div>
+          <div className="reportSummaryGrid">
+            <div className="reportSummaryCard">
+              <span>Selected Machines</span>
+              <strong>{reportOverview.total}</strong>
+            </div>
+            <div className="reportSummaryCard">
+              <span>Active Counted</span>
+              <strong>{reportOverview.active}</strong>
+            </div>
+            <div className="reportSummaryCard">
+              <span>Available</span>
+              <strong>{reportOverview.available}</strong>
+            </div>
+            <div className="reportSummaryCard highlightSummaryCard">
+              <span>Availability</span>
+              <strong>{formatNumber(reportOverview.percent)}%</strong>
+            </div>
+            <div className="reportSummaryCard">
+              <span>Major Repair Excluded</span>
+              <strong>{reportOverview.majorExcluded}</strong>
+            </div>
+            <div className="reportSummaryCard">
+              <span>Hours Down</span>
+              <strong>{formatNumber(reportOverview.hoursDown)}</strong>
+            </div>
+          </div>
+
+          <div className="reportOptionGrid">
+            <div className="reportOptionCard">
+              <strong>Machine availability</strong>
+              <span>Shows each selected machine availability percentage.</span>
+            </div>
+            <div className="reportOptionCard">
+              <strong>Same type availability</strong>
+              <span>Compares each machine against all active machines of the same type.</span>
+            </div>
+            <div className="reportOptionCard">
+              <strong>Department availability</strong>
+              <span>Shows the department percentage and available / active count.</span>
+            </div>
+            <div className="reportOptionCard">
+              <strong>Department + type</strong>
+              <span>Breaks down machine type availability inside each department.</span>
+            </div>
+          </div>
+
+          <div className="reportSectionSubTitle">Machine Availability Comparison</div>
                       <div className="tableWrap reportTableWrap">
                         <table>
                           <thead>
@@ -2432,15 +2496,79 @@ export default function DashboardClient({ role, username }: DashboardClientProps
         .miniAction { border: 1px solid rgba(255, 255, 255, 0.14); background: rgba(10, 23, 52, 0.5); color: white; border-radius: 999px; padding: 10px 14px; font-size: 13px; font-weight: 800; cursor: pointer; }
 
         .controlsRow, .reportFilters { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
-        .reportMachineSelect { min-height: 130px; flex: 1 1 320px; }
-        .reportFilters .textInput { max-width: 190px; }
+
+        .reportTabButton {
+          background: linear-gradient(180deg, rgba(88, 140, 255, 0.95), rgba(35, 86, 186, 0.95));
+          border-color: rgba(172, 199, 255, 0.34);
+        }
+
+        .reportPanel {
+          margin-top: 16px;
+          scroll-margin-top: 18px;
+        }
+
+        .reportHelpGrid, .reportOptionGrid {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 10px;
+          margin-bottom: 12px;
+        }
+
+        .reportOptionGrid {
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          margin: 4px 0 14px;
+        }
+
+        .reportHelpCard, .reportOptionCard {
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          border-radius: 16px;
+          padding: 12px 14px;
+          background: rgba(255, 255, 255, 0.04);
+          min-width: 0;
+        }
+
+        .reportHelpCard strong, .reportOptionCard strong {
+          display: block;
+          margin-bottom: 6px;
+          color: #ffffff;
+          font-size: 14px;
+          font-weight: 900;
+        }
+
+        .reportHelpCard span, .reportOptionCard span {
+          color: #cfdbf4;
+          font-size: 13px;
+          line-height: 1.35;
+        }
+
+        .reportFilterBlock {
+          flex: 1 1 180px;
+          min-width: 180px;
+        }
+
+        .reportMachineBlock {
+          flex: 3 1 520px;
+        }
+
+        .reportFilterBlock > span {
+          display: block;
+          margin: 0 0 6px;
+          font-size: 12px;
+          color: #cfdbf4;
+          font-weight: 900;
+          text-transform: uppercase;
+          letter-spacing: 0.4px;
+        }
+
+        .reportMachineSelect { min-height: 116px; }
+        .reportFilters .textInput { max-width: none; }
         .printTitle { margin-bottom: 12px; }
         .printTitle h1 { display: none; }
         .reportCount { margin: 14px 0 10px; font-weight: 800; color: #e7eeff; }
 
         .reportSummaryGrid {
           display: grid;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
+          grid-template-columns: repeat(6, minmax(0, 1fr));
           gap: 10px;
           margin: 12px 0 14px;
         }
@@ -2451,6 +2579,11 @@ export default function DashboardClient({ role, username }: DashboardClientProps
           padding: 12px 14px;
           background: rgba(255, 255, 255, 0.04);
           min-width: 0;
+        }
+
+        .highlightSummaryCard {
+          background: rgba(255, 177, 75, 0.12);
+          border-color: rgba(255, 207, 103, 0.45);
         }
 
         .reportSummaryCard span {
@@ -2508,7 +2641,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
             grid-template-columns: 1fr;
           }
 
-          .kpiGrid, .departmentGrid, .detailGrid, .adminGrid, .reportSummaryGrid, .reportMiniTables { grid-template-columns: 1fr; }
+          .kpiGrid, .departmentGrid, .detailGrid, .adminGrid, .reportSummaryGrid, .reportMiniTables, .reportHelpGrid, .reportOptionGrid { grid-template-columns: 1fr; }
           .logoText { font-size: 26px; }
           .titleWrap h1 { font-size: 17px; }
           .chartPanel { padding-left: 44px; }
@@ -2525,7 +2658,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
           .shell { width: 100%; padding: 0; }
           .dashboardGrid { display: block; }
           .reportPanel { box-shadow: none; border: none; background: white; color: black; padding: 0; }
-          .reportSummaryGrid, .reportMiniTables { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+          .reportSummaryGrid, .reportMiniTables, .reportHelpGrid, .reportOptionGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
           .reportSummaryCard, .departmentCard, .departmentTypeCard { background: white; color: black; border: 1px solid #333; }
           .reportSummaryCard span, .reportSummaryCard strong, .reportSectionSubTitle, .reportCount { color: black; }
           .printTitle h1 { display: block; margin: 0 0 8px; color: black; }
