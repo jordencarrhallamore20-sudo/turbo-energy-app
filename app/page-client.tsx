@@ -312,6 +312,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
   const [reportTo, setReportTo] = useState("");
   const [reportData, setReportData] = useState<HistoryItem[]>([]);
   const [reportGeneratedAt, setReportGeneratedAt] = useState("");
+  const [reportSearch, setReportSearch] = useState("");
 
   useEffect(() => {
     void Promise.all([loadMachinesFromSupabase(), loadHistoryFromSupabase()]);
@@ -656,6 +657,34 @@ export default function DashboardClient({ role, username }: DashboardClientProps
       );
     });
   }, [adminSearch, machines]);
+
+  const filteredReportMachines = useMemo(() => {
+    const term = reportSearch.trim().toLowerCase();
+
+    return machines
+      .filter((machine) => {
+        if (!term) return true;
+
+        return (
+          machine.fleet.toLowerCase().includes(term) ||
+          machine.type.toLowerCase().includes(term) ||
+          machine.machineType.toLowerCase().includes(term) ||
+          machine.status.toLowerCase().includes(term) ||
+          machine.department.toLowerCase().includes(term) ||
+          machine.location.toLowerCase().includes(term) ||
+          machine.repairReason.toLowerCase().includes(term) ||
+          machine.downtimeReason.toLowerCase().includes(term)
+        );
+      })
+      .sort((a, b) => a.fleet.localeCompare(b.fleet));
+  }, [machines, reportSearch]);
+
+  const selectedReportMachineObjects = useMemo(() => {
+    const selected = new Set(reportMachines);
+    return machines
+      .filter((machine) => selected.has(machine.fleet))
+      .sort((a, b) => a.fleet.localeCompare(b.fleet));
+  }, [machines, reportMachines]);
 
   const repairOfflineMachines = useMemo(() => {
     return machines
@@ -1873,6 +1902,7 @@ export default function DashboardClient({ role, username }: DashboardClientProps
                   setReportTo("");
                   setReportData([]);
                   setReportGeneratedAt("");
+                  setReportSearch("");
                 }}
               >
                 Clear Filters
@@ -1895,32 +1925,93 @@ export default function DashboardClient({ role, username }: DashboardClientProps
             </div>
           </div>
 
-          <div className="reportFilters noPrint">
-            <label className="reportFilterBlock reportMachineBlock">
-              <span>Machines</span>
-              <select
-                multiple
-                value={reportMachines}
-                onChange={(e) => setReportMachines(Array.from(e.target.selectedOptions, (option) => option.value))}
-                className="selectInput reportMachineSelect"
-              >
-                {filteredAdminMachines.map((machine) => (
-                  <option key={machine.fleet} value={machine.fleet}>
-                    {machine.fleet} - {machine.machineType}
-                  </option>
-                ))}
-              </select>
-            </label>
+          <div className="reportSelectorPanel noPrint">
+            <div className="reportSearchRow">
+              <label className="reportFilterBlock reportSearchBlock">
+                <span>Search machines for report</span>
+                <input
+                  type="search"
+                  value={reportSearch}
+                  onChange={(e) => setReportSearch(e.target.value)}
+                  className="textInput"
+                  placeholder="Search fleet, type, department, status, reason..."
+                />
+              </label>
+              <div className="reportQuickButtons">
+                <button
+                  className="miniAction"
+                  type="button"
+                  onClick={() => setReportMachines(filteredReportMachines.map((machine) => machine.fleet))}
+                >
+                  Select shown
+                </button>
+                <button
+                  className="miniAction"
+                  type="button"
+                  onClick={() => setReportMachines(machines.map((machine) => machine.fleet))}
+                >
+                  Select all
+                </button>
+                <button
+                  className="miniAction"
+                  type="button"
+                  onClick={() => setReportMachines([])}
+                >
+                  Full fleet / clear selected
+                </button>
+              </div>
+            </div>
 
-            <label className="reportFilterBlock">
-              <span>From date</span>
-              <input type="date" value={reportFrom} onChange={(e) => setReportFrom(e.target.value)} className="textInput" />
-            </label>
+            <div className="reportFilters">
+              <label className="reportFilterBlock reportMachineBlock">
+                <span>
+                  Machines ({filteredReportMachines.length} shown / {reportMachines.length === 0 ? "full fleet" : `${reportMachines.length} selected`})
+                </span>
+                <select
+                  multiple
+                  value={reportMachines}
+                  onChange={(e) => setReportMachines(Array.from(e.target.selectedOptions, (option) => option.value))}
+                  className="selectInput reportMachineSelect"
+                >
+                  {filteredReportMachines.map((machine) => (
+                    <option key={machine.fleet} value={machine.fleet}>
+                      {machine.fleet} - {normalizeTypeLabel(machine.type)} - {machine.department || "Unassigned"} - {machine.status}{machine.majorRepair ? " (Major repair excluded)" : ""}
+                    </option>
+                  ))}
+                </select>
+                <div className="reportSelectHint">
+                  Leave blank for full fleet. Search first, then use Select shown for a quick report group. Hold Ctrl to pick more than one manually.
+                </div>
+              </label>
 
-            <label className="reportFilterBlock">
-              <span>To date</span>
-              <input type="date" value={reportTo} onChange={(e) => setReportTo(e.target.value)} className="textInput" />
-            </label>
+              <label className="reportFilterBlock">
+                <span>From date</span>
+                <input type="date" value={reportFrom} onChange={(e) => setReportFrom(e.target.value)} className="textInput" />
+              </label>
+
+              <label className="reportFilterBlock">
+                <span>To date</span>
+                <input type="date" value={reportTo} onChange={(e) => setReportTo(e.target.value)} className="textInput" />
+              </label>
+            </div>
+
+            <div className="reportSelectedBar">
+              {reportMachines.length === 0 ? (
+                <span className="reportFullFleetBadge">Full fleet report selected</span>
+              ) : (
+                selectedReportMachineObjects.map((machine) => (
+                  <button
+                    type="button"
+                    className="reportSelectedChip"
+                    key={`selected-report-${machine.fleet}`}
+                    onClick={() => setReportMachines(reportMachines.filter((fleet) => fleet !== machine.fleet))}
+                    title="Click to remove from report"
+                  >
+                    {machine.fleet} <span>×</span>
+                  </button>
+                ))
+              )}
+            </div>
           </div>
 
           <div className="printTitle">
@@ -2571,9 +2662,36 @@ export default function DashboardClient({ role, username }: DashboardClientProps
           line-height: 1.35;
         }
 
+        .reportSelectorPanel {
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          border-radius: 18px;
+          padding: 12px;
+          background: rgba(255, 255, 255, 0.035);
+          margin-bottom: 12px;
+        }
+
+        .reportSearchRow {
+          display: grid;
+          grid-template-columns: minmax(260px, 1fr) auto;
+          gap: 10px;
+          align-items: end;
+          margin-bottom: 10px;
+        }
+
+        .reportQuickButtons {
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+          justify-content: flex-end;
+        }
+
         .reportFilterBlock {
           flex: 1 1 180px;
           min-width: 180px;
+        }
+
+        .reportSearchBlock {
+          min-width: 260px;
         }
 
         .reportMachineBlock {
@@ -2590,8 +2708,44 @@ export default function DashboardClient({ role, username }: DashboardClientProps
           letter-spacing: 0.4px;
         }
 
-        .reportMachineSelect { min-height: 116px; }
-        .reportFilters .textInput { max-width: none; }
+        .reportMachineSelect { min-height: 132px; }
+        .reportFilters .textInput, .reportSearchRow .textInput { max-width: none; }
+
+        .reportSelectHint {
+          margin-top: 7px;
+          color: #cfdbf4;
+          font-size: 12px;
+          line-height: 1.35;
+        }
+
+        .reportSelectedBar {
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+          margin-top: 8px;
+          max-height: 92px;
+          overflow: auto;
+        }
+
+        .reportFullFleetBadge, .reportSelectedChip {
+          border: 1px solid rgba(255, 255, 255, 0.14);
+          border-radius: 999px;
+          padding: 8px 10px;
+          background: rgba(10, 23, 52, 0.5);
+          color: #ffffff;
+          font-weight: 900;
+          font-size: 12px;
+        }
+
+        .reportSelectedChip {
+          cursor: pointer;
+        }
+
+        .reportSelectedChip span {
+          color: #ffcf6a;
+          margin-left: 5px;
+        }
+
         .printTitle { margin-bottom: 12px; }
         .printTitle h1 { display: none; }
         .reportCount { margin: 14px 0 10px; font-weight: 800; color: #e7eeff; }
@@ -2680,6 +2834,17 @@ export default function DashboardClient({ role, username }: DashboardClientProps
           .barGroup { width: 50px; min-width: 50px; max-width: 50px; }
           .barLabel { font-size: 11px; }
           .bottomLine, .adminTop, .topMetaRow, .historyTop { flex-direction: column; align-items: flex-start; }
+        }
+
+
+        @media (max-width: 900px) {
+          .reportSearchRow {
+            grid-template-columns: 1fr;
+          }
+
+          .reportQuickButtons {
+            justify-content: flex-start;
+          }
         }
 
         @media print {
