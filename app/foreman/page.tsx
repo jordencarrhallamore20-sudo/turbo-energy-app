@@ -1,1048 +1,754 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { supabase } from "../../lib/supabase";
+import React, { useEffect, useMemo, useState } from "react";
 
 type Machine = {
-  fleet: string;
-  type?: string;
-  machineType?: string;
-  status: string;
-  location?: string;
-  department?: string;
-  availability?: number;
-  updated?: string;
-  majorRepair?: boolean;
-  repairReason: string;
-  sparesEta?: string;
-  hoursWorked: number;
-  hoursDown: number;
-  onlineStatus: string;
-  downtimeReason: string;
-  downtimeStartedAt?: string | null;
-};
-
-type QueuedUpdate = {
   id: string;
-  createdAt: string;
-  actor: string;
   fleet: string;
-  payload: {
-    status: string;
-    hoursWorked: number;
-    hoursDown: number;
-    onlineStatus: string;
-    downtimeReason: string;
-    repairReason: string;
-    updated: string;
-    downtimeStartedAt: string | null;
-  };
-  history: {
-    action: string;
-    fleet: string;
-    field: string;
-    oldValue: string;
-    newValue: string;
-    notes: string;
-  };
+  type: string;
+  machineType: string;
+  status: string;
+  location: string;
+  department: string;
+  availability: number;
+  repairReason: string;
+  sparesEta: string;
+  majorRepair: boolean;
+  updated: string;
 };
 
-const FOREMAN_PIN = "1234";
-const OFFLINE_QUEUE_KEY = "turbo_foreman_offline_queue_v1";
+const LOCAL_KEY = "turbo_energy_shared_machine_register_v3";
+const FOREMAN_SESSION_KEY = "turbo_energy_foreman_session_v3";
 
-const statusOptions = ["Available", "Repair", "Maintenance", "Down", "Major Repair"];
-const onlineOptions = ["Online", "Offline", "Standby"];
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 
-export default function MachineUpdatePage() {
-  const [loggedIn, setLoggedIn] = useState(false);
-  const [pin, setPin] = useState("");
-  const [foremanName, setForemanName] = useState("");
+const FOREMAN_USERS = [
+  { username: "foreman", password: "1234", name: "Foreman" },
+  { username: "workshop", password: "1234", name: "Workshop Foreman" },
+  { username: "chargehand", password: "1234", name: "Chargehand" },
+];
+
+const SAMPLE_MACHINES: Machine[] = [
+  {
+    id: "sample-fel-001",
+    fleet: "FEL 001",
+    type: "FEL",
+    machineType: "Front End Loader",
+    status: "Available",
+    location: "Workshop",
+    department: "Plant",
+    availability: 100,
+    repairReason: "",
+    sparesEta: "",
+    majorRepair: false,
+    updated: new Date().toISOString(),
+  },
+  {
+    id: "sample-ht-001",
+    fleet: "HT 001",
+    type: "HT",
+    machineType: "Haul Truck",
+    status: "Down",
+    location: "Workshop",
+    department: "Mining",
+    availability: 0,
+    repairReason: "Awaiting inspection",
+    sparesEta: "",
+    majorRepair: false,
+    updated: new Date().toISOString(),
+  },
+];
+
+function cleanText(value: unknown): string {
+  return String(value ?? "").trim();
+}
+
+function safeNumber(value: unknown, fallback = 0): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.round(n * 10) / 10 : fallback;
+}
+
+function makeId(machine: Partial<Machine>): string {
+  const base =
+    cleanText(machine.fleet) ||
+    cleanText(machine.id) ||
+    `machine-${Date.now()}-${Math.random()}`;
+
+  return base
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+}
+
+function normalizeMachine(row: any): Machine {
+  const fleet = cleanText(row.fleet || row.fleet_number || row.registration || row.unit);
+  const type = cleanText(row.type || row.machine_group || row.group);
+  const machineType = cleanText(row.machineType || row.machine_type || row.machine);
+  const status = cleanText(row.status || row.machine_status) || "Available";
+
+  return {
+    id: cleanText(row.id) || makeId({ fleet }),
+    fleet: fleet || "UNKNOWN",
+    type: type || machineType || "OTHER",
+    machineType: machineType || type || "Machine",
+    status,
+    location: cleanText(row.location) || "Unknown",
+    department: cleanText(row.department) || "Unassigned",
+    availability: safeNumber(row.availability, status.toLowerCase().includes("available") ? 100 : 0),
+    repairReason: cleanText(row.repairReason || row.repair_reason || row.reason),
+    sparesEta: cleanText(row.sparesEta || row.spares_eta || row.eta),
+    majorRepair:
+      Boolean(row.majorRepair) ||
+      Boolean(row.major_repair) ||
+      status.toLowerCase().includes("major repair"),
+    updated: cleanText(row.updated || row.updated_at) || new Date().toISOString(),
+  };
+}
+
+function toSupabaseRow(machine: Machine) {
+  return {
+    id: machine.id,
+    fleet: machine.fleet,
+    type: machine.type,
+    machine_type: machine.machineType,
+    status: machine.status,
+    location: machine.location,
+    department: machine.department,
+    availability: machine.availability,
+    repair_reason: machine.repairReason,
+    spares_eta: machine.sparesEta,
+    major_repair: machine.majorRepair,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+function fromSupabaseRow(row: any): Machine {
+  return normalizeMachine({
+    id: row.id,
+    fleet: row.fleet,
+    type: row.type,
+    machineType: row.machine_type,
+    status: row.status,
+    location: row.location,
+    department: row.department,
+    availability: row.availability,
+    repairReason: row.repair_reason,
+    sparesEta: row.spares_eta,
+    majorRepair: row.major_repair,
+    updated: row.updated_at,
+  });
+}
+
+async function supabaseFetch(path: string, options: RequestInit = {}) {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    throw new Error("Supabase is not connected.");
+  }
+
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    ...options,
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+    },
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Supabase error ${res.status}`);
+  }
+
+  if (res.status === 204) return null;
+  return res.json();
+}
+
+async function loadMachinesFromCloud(): Promise<Machine[]> {
+  const rows = await supabaseFetch(
+    "machine_register?select=*&order=fleet.asc",
+    {
+      method: "GET",
+    }
+  );
+
+  if (!Array.isArray(rows)) return [];
+  return rows.map(fromSupabaseRow).filter((m) => m.fleet);
+}
+
+async function saveMachineToCloud(machine: Machine) {
+  await supabaseFetch("machine_register", {
+    method: "POST",
+    headers: {
+      Prefer: "resolution=merge-duplicates",
+    },
+    body: JSON.stringify(toSupabaseRow(machine)),
+  });
+}
+
+function loadLocalMachines(): Machine[] {
+  try {
+    const raw = localStorage.getItem(LOCAL_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map(normalizeMachine);
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalMachines(machines: Machine[]) {
+  localStorage.setItem(LOCAL_KEY, JSON.stringify(machines));
+}
+
+function isAvailable(machine: Machine) {
+  const status = machine.status.toLowerCase();
+  return (
+    !machine.majorRepair &&
+    (status.includes("available") ||
+      status.includes("online") ||
+      status.includes("working"))
+  );
+}
+
+function isDown(machine: Machine) {
+  return !machine.majorRepair && !isAvailable(machine);
+}
+
+function percent(value: number) {
+  return `${safeNumber(value).toFixed(1)}%`;
+}
+
+export default function ForemanPage() {
+  const [loggedInUser, setLoggedInUser] = useState<string>("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
 
   const [machines, setMachines] = useState<Machine[]>([]);
-  const [selectedFleet, setSelectedFleet] = useState("");
-  const [form, setForm] = useState<Partial<Machine>>({});
+  const [loading, setLoading] = useState(true);
+  const [syncMessage, setSyncMessage] = useState("");
   const [search, setSearch] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [loading, setLoading] = useState(false);
-
-  const [isOnline, setIsOnline] = useState(true);
-  const [queuedCount, setQueuedCount] = useState(0);
-  const [syncing, setSyncing] = useState(false);
-
-  const selectedMachine = useMemo(() => {
-    return machines.find((machine) => machine.fleet === selectedFleet);
-  }, [machines, selectedFleet]);
-
-  const filteredMachines = useMemo(() => {
-    const term = search.trim().toLowerCase();
-
-    return machines.filter((machine) => {
-      if (!term) return true;
-
-      return (
-        machine.fleet.toLowerCase().includes(term) ||
-        String(machine.machineType || "").toLowerCase().includes(term) ||
-        String(machine.type || "").toLowerCase().includes(term) ||
-        String(machine.department || "").toLowerCase().includes(term) ||
-        String(machine.location || "").toLowerCase().includes(term)
-      );
-    });
-  }, [machines, search]);
+  const [activeTab, setActiveTab] = useState<"all" | "available" | "down" | "major">("all");
 
   useEffect(() => {
-    setIsOnline(typeof navigator === "undefined" ? true : navigator.onLine);
-    setQueuedCount(readQueue().length);
-
-    function handleOnline() {
-      setIsOnline(true);
-      void syncOfflineQueue();
-    }
-
-    function handleOffline() {
-      setIsOnline(false);
-    }
-
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
-
-    return () => {
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
-    };
+    const saved = localStorage.getItem(FOREMAN_SESSION_KEY);
+    if (saved) setLoggedInUser(saved);
   }, []);
 
   useEffect(() => {
-    if (loggedIn) {
-      void loadMachines();
-      if (navigator.onLine) void syncOfflineQueue();
-    }
-  }, [loggedIn]);
-
-  async function loadMachines() {
-    const cached = readCachedMachines();
-
-    if (cached.length > 0) {
-      setMachines(cached);
-      const chosen =
-        cached.find((machine) => machine.fleet === selectedFleet) ||
-        cached[0];
-      setSelectedFleet(chosen.fleet);
-      setForm(chosen);
-      setLoading(false);
-    } else {
+    async function load() {
       setLoading(true);
-    }
+      setSyncMessage("");
 
-    if (!navigator.onLine) {
-      setLoading(false);
-      return;
-    }
+      try {
+        const cloudMachines = await loadMachinesFromCloud();
 
-    const { data, error } = await supabase
-      .from("machines")
-      .select(
-        'fleet,type,machineType,status,location,department,availability,updated,majorRepair,repairReason,sparesEta,hoursWorked,hoursDown,onlineStatus,downtimeReason,downtimeStartedAt'
-      )
-      .order("fleet", { ascending: true });
+        if (cloudMachines.length > 0) {
+          setMachines(cloudMachines);
+          saveLocalMachines(cloudMachines);
+          setSyncMessage(`Loaded ${cloudMachines.length} machines from shared register.`);
+          return;
+        }
 
-    if (error) {
-      console.error(error);
-      alert("Could not load live machines. Using saved offline list if available.");
-      setLoading(false);
-      return;
-    }
+        const localMachines = loadLocalMachines();
 
-    const normalized = ((data || []) as Machine[]).map(normalizeMachine);
-    setMachines(normalized);
-    writeCachedMachines(normalized);
+        if (localMachines.length > 0) {
+          setMachines(localMachines);
+          setSyncMessage(
+            `Shared register is empty. Loaded ${localMachines.length} machines from this device backup.`
+          );
+          return;
+        }
 
-    if (normalized.length > 0) {
-      const existing = normalized.find((machine) => machine.fleet === selectedFleet);
-      const chosen = existing || normalized[0];
-      setSelectedFleet(chosen.fleet);
-      setForm(chosen);
-    }
+        setMachines(SAMPLE_MACHINES);
+        saveLocalMachines(SAMPLE_MACHINES);
+        setSyncMessage(
+          "No shared register found yet. Showing sample machines only. Upload/save the full register from admin."
+        );
+      } catch (err: any) {
+        const localMachines = loadLocalMachines();
 
-    setLoading(false);
-  }
-
-  function handleLogin() {
-    if (!foremanName.trim()) {
-      alert("Enter your name.");
-      return;
-    }
-
-    if (pin !== FOREMAN_PIN) {
-      alert("Wrong PIN.");
-      return;
-    }
-
-    setLoggedIn(true);
-  }
-
-  function handleSearch(value: string) {
-    setSearch(value);
-
-    const found = machines.find((machine) =>
-      machine.fleet.toLowerCase().includes(value.toLowerCase()) ||
-      String(machine.machineType || "").toLowerCase().includes(value.toLowerCase()) ||
-      String(machine.type || "").toLowerCase().includes(value.toLowerCase()) ||
-      String(machine.department || "").toLowerCase().includes(value.toLowerCase()) ||
-      String(machine.location || "").toLowerCase().includes(value.toLowerCase())
-    );
-
-    if (found) {
-      setSelectedFleet(found.fleet);
-      setForm(found);
-    }
-  }
-
-  function selectMachine(fleet: string) {
-    const machine = machines.find((item) => item.fleet === fleet);
-    if (!machine) return;
-
-    setSelectedFleet(fleet);
-    setForm(machine);
-  }
-
-  async function addHistoryEntry(entry: {
-    action: string;
-    fleet: string;
-    field?: string;
-    oldValue?: string;
-    newValue?: string;
-    notes?: string;
-  }) {
-    const { error } = await supabase.from("machine_history").insert({
-      actor: foremanName || "Machine Update",
-      action: entry.action,
-      fleet: entry.fleet,
-      field: entry.field || "",
-      old_value: entry.oldValue || "",
-      new_value: entry.newValue || "",
-      notes: entry.notes || "",
-    });
-
-    if (error) {
-      console.error("History insert error:", error);
-    }
-  }
-
-  function buildUpdate(): QueuedUpdate | null {
-    if (!selectedFleet || !selectedMachine) {
-      alert("Select a machine first.");
-      return null;
-    }
-
-    const oldOnlineStatus = selectedMachine.onlineStatus || "Online";
-    const newOnlineStatus = String(form.onlineStatus || "Online");
-
-    const oldStatus = selectedMachine.status || "Available";
-    const newStatus = String(form.status || "Available");
-
-    const oldHoursDown = Number(selectedMachine.hoursDown || 0);
-    const typedHoursDown = Number(form.hoursDown || 0);
-
-    let downtimeStartedAt = selectedMachine.downtimeStartedAt || null;
-    let finalHoursDown = typedHoursDown;
-
-    const wasRunning = isMachineRunning(oldStatus, oldOnlineStatus);
-    const isRunningNow = isMachineRunning(newStatus, newOnlineStatus);
-
-    // Start downtime when machine moves from running to down/offline/repair.
-    if (wasRunning && !isRunningNow) {
-      downtimeStartedAt = new Date().toISOString();
-    }
-
-    // Close downtime and add duration when machine moves back online/running.
-    if (!wasRunning && isRunningNow && downtimeStartedAt) {
-      const downStart = new Date(downtimeStartedAt).getTime();
-      const now = Date.now();
-
-      if (!Number.isNaN(downStart) && now > downStart) {
-        const extraHours = roundToTwo((now - downStart) / 1000 / 60 / 60);
-        finalHoursDown = roundToTwo(oldHoursDown + extraHours);
+        if (localMachines.length > 0) {
+          setMachines(localMachines);
+          setSyncMessage(
+            `Could not connect to shared register. Loaded ${localMachines.length} machines from this device backup.`
+          );
+        } else {
+          setMachines(SAMPLE_MACHINES);
+          setSyncMessage(
+            "Could not connect to shared register and no device backup was found. Showing sample machines only."
+          );
+        }
+      } finally {
+        setLoading(false);
       }
-
-      downtimeStartedAt = null;
     }
 
-    // If saved as down/offline but no start time exists, start it now.
-    if (!isRunningNow && !downtimeStartedAt) {
-      downtimeStartedAt = new Date().toISOString();
-    }
+    load();
+  }, []);
 
-    const payload = {
-      status: newStatus,
-      hoursWorked: Number(form.hoursWorked || 0),
-      hoursDown: finalHoursDown,
-      onlineStatus: newOnlineStatus,
-      downtimeReason: String(form.downtimeReason || ""),
-      repairReason: String(form.repairReason || ""),
-      updated: new Date().toLocaleDateString(),
-      downtimeStartedAt,
-    };
+  const stats = useMemo(() => {
+    const activeMachines = machines.filter((m) => !m.majorRepair);
+    const available = activeMachines.filter(isAvailable).length;
+    const down = activeMachines.filter(isDown).length;
+    const major = machines.filter((m) => m.majorRepair).length;
+    const total = activeMachines.length;
+    const availability = total > 0 ? (available / total) * 100 : 0;
 
     return {
-      id: `${selectedFleet}-${Date.now()}`,
-      createdAt: new Date().toISOString(),
-      actor: foremanName || "Machine Update",
-      fleet: selectedFleet,
-      payload,
-      history: {
-        action: "Mobile machine update",
-        fleet: selectedFleet,
-        field: "status/online/hours",
-        oldValue: `${oldStatus} / ${oldOnlineStatus} / Down ${oldHoursDown}`,
-        newValue: `${newStatus} / ${newOnlineStatus} / Down ${finalHoursDown}`,
-        notes:
-          String(form.downtimeReason || form.repairReason || "").trim() ||
-          "Mobile machine update",
-      },
+      total,
+      available,
+      down,
+      major,
+      availability,
     };
-  }
+  }, [machines]);
 
-  async function save() {
-    const update = buildUpdate();
-    if (!update) return;
+  const filteredMachines = useMemo(() => {
+    const q = search.toLowerCase().trim();
 
-    setSaving(true);
+    return machines.filter((m) => {
+      if (activeTab === "available" && !isAvailable(m)) return false;
+      if (activeTab === "down" && !isDown(m)) return false;
+      if (activeTab === "major" && !m.majorRepair) return false;
 
-    applyLocalUpdate(update);
+      if (!q) return true;
 
-    if (!navigator.onLine) {
-      queueUpdate(update);
-      setQueuedCount(readQueue().length);
-      alert("No internet. Update saved offline and will sync when signal returns.");
-      setSaving(false);
-      return;
-    }
+      const combined = [
+        m.fleet,
+        m.type,
+        m.machineType,
+        m.status,
+        m.location,
+        m.department,
+        m.repairReason,
+        m.sparesEta,
+      ]
+        .join(" ")
+        .toLowerCase();
 
-    const ok = await sendUpdateToSupabase(update);
+      return combined.includes(q);
+    });
+  }, [machines, search, activeTab]);
 
-    if (!ok) {
-      queueUpdate(update);
-      setQueuedCount(readQueue().length);
-      alert("Could not reach server. Update saved offline and will sync later.");
-      setSaving(false);
-      return;
-    }
+  const departmentStats = useMemo(() => {
+    const map = new Map<
+      string,
+      { department: string; total: number; available: number; down: number; percent: number }
+    >();
 
-    await loadMachines();
-    alert("Machine updated.");
-    setSaving(false);
-  }
+    machines
+      .filter((m) => !m.majorRepair)
+      .forEach((m) => {
+        const key = m.department || "Unassigned";
+        const current =
+          map.get(key) ||
+          {
+            department: key,
+            total: 0,
+            available: 0,
+            down: 0,
+            percent: 0,
+          };
 
-  function applyLocalUpdate(update: QueuedUpdate) {
-    const updatedMachines = machines.map((machine) =>
-      machine.fleet === update.fleet
-        ? normalizeMachine({
-            ...machine,
-            ...update.payload,
-          })
-        : machine
+        current.total += 1;
+
+        if (isAvailable(m)) {
+          current.available += 1;
+        } else {
+          current.down += 1;
+        }
+
+        current.percent =
+          current.total > 0 ? (current.available / current.total) * 100 : 0;
+
+        map.set(key, current);
+      });
+
+    return Array.from(map.values()).sort((a, b) =>
+      a.department.localeCompare(b.department)
+    );
+  }, [machines]);
+
+  async function handleLogin(e: React.FormEvent) {
+    e.preventDefault();
+
+    const found = FOREMAN_USERS.find(
+      (u) =>
+        u.username.toLowerCase() === username.trim().toLowerCase() &&
+        u.password === password
     );
 
-    setMachines(updatedMachines);
-    writeCachedMachines(updatedMachines);
-
-    const updated = updatedMachines.find((machine) => machine.fleet === update.fleet);
-    if (updated) {
-      setForm(updated);
-      setSelectedFleet(updated.fleet);
-    }
-  }
-
-  async function sendUpdateToSupabase(update: QueuedUpdate) {
-    const { error } = await supabase
-      .from("machines")
-      .update(update.payload)
-      .eq("fleet", update.fleet);
-
-    if (error) {
-      console.error(error);
-      return false;
-    }
-
-    await addHistoryEntry({
-      action: update.history.action,
-      fleet: update.history.fleet,
-      field: update.history.field,
-      oldValue: update.history.oldValue,
-      newValue: update.history.newValue,
-      notes: update.history.notes,
-    });
-
-    return true;
-  }
-
-  async function syncOfflineQueue() {
-    const queue = readQueue();
-
-    if (queue.length === 0 || !navigator.onLine) {
-      setQueuedCount(queue.length);
+    if (!found) {
+      alert("Incorrect foreman login details.");
       return;
     }
 
-    setSyncing(true);
+    localStorage.setItem(FOREMAN_SESSION_KEY, found.name);
+    setLoggedInUser(found.name);
+  }
 
-    const failed: QueuedUpdate[] = [];
+  function logout() {
+    localStorage.removeItem(FOREMAN_SESSION_KEY);
+    setLoggedInUser("");
+    setUsername("");
+    setPassword("");
+  }
 
-    for (const update of queue) {
-      const ok = await sendUpdateToSupabase(update);
-      if (!ok) failed.push(update);
-    }
+  async function refreshSharedRegister() {
+    setLoading(true);
+    setSyncMessage("");
 
-    writeQueue(failed);
-    setQueuedCount(failed.length);
-    setSyncing(false);
+    try {
+      const cloudMachines = await loadMachinesFromCloud();
 
-    if (failed.length === 0) {
-      await loadMachines();
+      if (cloudMachines.length === 0) {
+        setSyncMessage("Shared register is empty. Admin must upload/save the full register.");
+        return;
+      }
+
+      setMachines(cloudMachines);
+      saveLocalMachines(cloudMachines);
+      setSyncMessage(`Refreshed successfully. ${cloudMachines.length} machines loaded.`);
+    } catch {
+      setSyncMessage("Could not refresh from shared register. Check Supabase connection.");
+    } finally {
+      setLoading(false);
     }
   }
 
-  if (!loggedIn) {
+  async function updateMachineStatus(id: string, status: string) {
+    const next = machines.map((m) => {
+      if (m.id !== id) return m;
+
+      return {
+        ...m,
+        status,
+        availability: status.toLowerCase().includes("available") ? 100 : 0,
+        majorRepair: status.toLowerCase().includes("major repair"),
+        updated: new Date().toISOString(),
+      };
+    });
+
+    setMachines(next);
+    saveLocalMachines(next);
+
+    const changed = next.find((m) => m.id === id);
+    if (!changed) return;
+
+    try {
+      await saveMachineToCloud(changed);
+      setSyncMessage(`${changed.fleet} updated and saved to shared register.`);
+    } catch {
+      setSyncMessage(
+        `${changed.fleet} updated on this device, but could not save to shared register.`
+      );
+    }
+  }
+
+  async function updateMachineReason(id: string, repairReason: string) {
+    const next = machines.map((m) =>
+      m.id === id
+        ? {
+            ...m,
+            repairReason,
+            updated: new Date().toISOString(),
+          }
+        : m
+    );
+
+    setMachines(next);
+    saveLocalMachines(next);
+
+    const changed = next.find((m) => m.id === id);
+    if (!changed) return;
+
+    try {
+      await saveMachineToCloud(changed);
+      setSyncMessage(`${changed.fleet} reason saved.`);
+    } catch {
+      setSyncMessage(`${changed.fleet} reason saved on this device only.`);
+    }
+  }
+
+  if (!loggedInUser) {
     return (
-      <div className="page">
-        <div className="loginCard">
-          <div className="logoText">TURBO ENERGY</div>
-          <h1>Machine Update Login</h1>
-          <p>Enter your name and PIN to update machine status from your phone.</p>
-
-          <input
-            className="input"
-            placeholder="Your name"
-            value={foremanName}
-            onChange={(event) => setForemanName(event.target.value)}
-          />
-
-          <input
-            className="input"
-            placeholder="PIN"
-            type="password"
-            value={pin}
-            onChange={(event) => setPin(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") handleLogin();
-            }}
-          />
-
-          <button className="primaryButton" onClick={handleLogin}>
-            Login
-          </button>
-
-          <div className="hintBox">
-            Default PIN is <strong>1234</strong>. Change FOREMAN_PIN in this file when ready.
+      <main className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-4">
+        <section className="w-full max-w-md rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl p-6">
+          <div className="mb-6">
+            <p className="text-sm uppercase tracking-[0.3em] text-orange-400">
+              Turbo Energy
+            </p>
+            <h1 className="text-3xl font-bold mt-2">Foreman Login</h1>
+            <p className="text-slate-400 mt-2">
+              Login to view the full shared machine availability register.
+            </p>
           </div>
-        </div>
 
-        <style jsx>{styles}</style>
-      </div>
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <label className="block text-sm text-slate-300 mb-1">Username</label>
+              <input
+                className="w-full rounded-xl bg-slate-800 border border-slate-700 px-4 py-3 outline-none focus:border-orange-400"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="foreman"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm text-slate-300 mb-1">Password</label>
+              <input
+                className="w-full rounded-xl bg-slate-800 border border-slate-700 px-4 py-3 outline-none focus:border-orange-400"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                type="password"
+                placeholder="1234"
+              />
+            </div>
+
+            <button
+              type="submit"
+              className="w-full rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-bold py-3"
+            >
+              Open Foreman Register
+            </button>
+          </form>
+        </section>
+      </main>
     );
   }
 
   return (
-    <div className="page">
-      <div className="appShell">
-        <header className="header">
-          <div>
-            <div className="logoText">TURBO ENERGY</div>
-            <h1>Machine Update</h1>
-            <p>Logged in as {foremanName}</p>
+    <main className="min-h-screen bg-slate-100 text-slate-900 p-4 md:p-6">
+      <div className="max-w-7xl mx-auto space-y-5">
+        <header className="rounded-2xl bg-slate-950 text-white p-5 shadow-xl">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+              <p className="text-sm uppercase tracking-[0.3em] text-orange-400">
+                Turbo Energy
+              </p>
+              <h1 className="text-2xl md:text-4xl font-bold mt-1">
+                Foreman Machine Availability
+              </h1>
+              <p className="text-slate-300 mt-1">
+                Logged in as {loggedInUser}. All data loads from the shared register.
+              </p>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={refreshSharedRegister}
+                className="rounded-xl bg-white text-slate-950 px-4 py-2 font-bold"
+              >
+                Refresh Register
+              </button>
+              <button
+                onClick={logout}
+                className="rounded-xl bg-slate-800 text-white px-4 py-2 font-bold border border-slate-600"
+              >
+                Logout
+              </button>
+            </div>
           </div>
 
-          <button
-            className="logoutButton"
-            onClick={() => {
-              setLoggedIn(false);
-              setPin("");
-            }}
-          >
-            Logout
-          </button>
+          {syncMessage && (
+            <div className="mt-4 rounded-xl bg-slate-800 border border-slate-700 p-3 text-sm text-slate-200">
+              {syncMessage}
+            </div>
+          )}
         </header>
 
-        <section className="statusPanel">
-          <div className={isOnline ? "connectionOnline" : "connectionOffline"}>
-            {isOnline ? "Online" : "Offline Mode"}
+        <section className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <div className="rounded-2xl bg-white p-4 shadow">
+            <p className="text-xs text-slate-500 font-bold">TOTAL ACTIVE</p>
+            <p className="text-3xl font-black">{stats.total}</p>
           </div>
 
-          <div className="queueText">
-            Queued updates: <strong>{queuedCount}</strong>
+          <div className="rounded-2xl bg-white p-4 shadow">
+            <p className="text-xs text-slate-500 font-bold">AVAILABLE</p>
+            <p className="text-3xl font-black text-green-700">{stats.available}</p>
           </div>
 
-          <button
-            className="smallButton"
-            onClick={() => void syncOfflineQueue()}
-            disabled={!isOnline || syncing || queuedCount === 0}
-          >
-            {syncing ? "Syncing..." : "Sync Now"}
-          </button>
-        </section>
+          <div className="rounded-2xl bg-white p-4 shadow">
+            <p className="text-xs text-slate-500 font-bold">REPAIRS / DOWN</p>
+            <p className="text-3xl font-black text-red-700">{stats.down}</p>
+          </div>
 
-        <section className="panel">
-          <label className="label">Search machine</label>
-          <input
-            className="input"
-            placeholder="Search fleet, type, department, location..."
-            value={search}
-            onChange={(event) => handleSearch(event.target.value)}
-          />
+          <div className="rounded-2xl bg-white p-4 shadow">
+            <p className="text-xs text-slate-500 font-bold">MAJOR REPAIRS</p>
+            <p className="text-3xl font-black text-orange-700">{stats.major}</p>
+          </div>
 
-          <label className="label">Select machine</label>
-          <select
-            className="input"
-            value={selectedFleet}
-            onChange={(event) => selectMachine(event.target.value)}
-          >
-            {filteredMachines.map((machine) => (
-              <option key={machine.fleet} value={machine.fleet}>
-                {machine.fleet} - {machine.machineType || machine.type || ""}
-              </option>
-            ))}
-          </select>
-
-          <div className="smallText">
-            Showing {filteredMachines.length} of {machines.length} machines
+          <div className="rounded-2xl bg-white p-4 shadow col-span-2 md:col-span-1">
+            <p className="text-xs text-slate-500 font-bold">AVAILABILITY</p>
+            <p className="text-3xl font-black">{percent(stats.availability)}</p>
           </div>
         </section>
 
-        {loading && machines.length === 0 ? (
-          <section className="panel">
-            <strong>Loading machine list...</strong>
-            <p className="smallText">
-              If there is no signal, open this page once while online first so the phone can save the machine list.
-            </p>
-          </section>
-        ) : machines.length === 0 ? (
-          <section className="panel">
-            <strong>No saved machines available.</strong>
-            <p className="smallText">
-              Connect to internet, press Refresh Machines, then this phone will work offline after that.
-            </p>
-            <button className="secondaryButton" onClick={() => void loadMachines()}>
-              Refresh Machines
-            </button>
-          </section>
-        ) : (
-          <section className="panel">
-            <div className="machineHeader">
-              <div>
-                <h2>{selectedFleet || "No machine selected"}</h2>
-                <p>{form.machineType || form.type || "-"}</p>
-              </div>
-              <span className={`statusBadge ${getStatusClass(String(form.status || ""))}`}>
-                {form.status || "-"}
+        <section className="rounded-2xl bg-white p-4 shadow">
+          <div className="flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
+            <input
+              className="w-full md:max-w-xl rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-orange-500"
+              placeholder="Search fleet, type, status, location, department, reason..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => setActiveTab("all")}
+                className={`rounded-xl px-4 py-2 font-bold ${
+                  activeTab === "all" ? "bg-slate-950 text-white" : "bg-slate-100"
+                }`}
+              >
+                All
+              </button>
+              <button
+                onClick={() => setActiveTab("available")}
+                className={`rounded-xl px-4 py-2 font-bold ${
+                  activeTab === "available"
+                    ? "bg-green-700 text-white"
+                    : "bg-slate-100"
+                }`}
+              >
+                Available
+              </button>
+              <button
+                onClick={() => setActiveTab("down")}
+                className={`rounded-xl px-4 py-2 font-bold ${
+                  activeTab === "down" ? "bg-red-700 text-white" : "bg-slate-100"
+                }`}
+              >
+                Down
+              </button>
+              <button
+                onClick={() => setActiveTab("major")}
+                className={`rounded-xl px-4 py-2 font-bold ${
+                  activeTab === "major" ? "bg-orange-600 text-white" : "bg-slate-100"
+                }`}
+              >
+                Major Repairs
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-2xl bg-white p-4 shadow">
+          <h2 className="text-xl font-black mb-3">Department Availability</h2>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="bg-slate-950 text-white">
+                  <th className="p-3 text-left">Department</th>
+                  <th className="p-3 text-left">Total</th>
+                  <th className="p-3 text-left">Available</th>
+                  <th className="p-3 text-left">Down</th>
+                  <th className="p-3 text-left">Availability</th>
+                </tr>
+              </thead>
+              <tbody>
+                {departmentStats.map((d) => (
+                  <tr key={d.department} className="border-b">
+                    <td className="p-3 font-bold">{d.department}</td>
+                    <td className="p-3">{d.total}</td>
+                    <td className="p-3 text-green-700 font-bold">{d.available}</td>
+                    <td className="p-3 text-red-700 font-bold">{d.down}</td>
+                    <td className="p-3 font-bold">{percent(d.percent)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section className="rounded-2xl bg-white p-4 shadow">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <h2 className="text-xl font-black">
+              Machine List{" "}
+              <span className="text-slate-500 text-base">
+                ({filteredMachines.length})
               </span>
-            </div>
+            </h2>
 
-            {form.downtimeStartedAt && (
-              <div className="warningBox">
-                Downtime active since: {formatDateTime(form.downtimeStartedAt)}
-              </div>
-            )}
+            {loading && <p className="text-sm text-slate-500">Loading...</p>}
+          </div>
 
-            <div className="formGrid">
-              <div>
-                <label className="label">Machine Status</label>
-                <select
-                  className="input"
-                  value={form.status || "Available"}
-                  onChange={(event) =>
-                    setForm({ ...form, status: event.target.value })
-                  }
-                >
-                  {statusOptions.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
-              </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm border-collapse min-w-[1100px]">
+              <thead>
+                <tr className="bg-slate-950 text-white">
+                  <th className="p-3 text-left">Fleet</th>
+                  <th className="p-3 text-left">Type</th>
+                  <th className="p-3 text-left">Machine</th>
+                  <th className="p-3 text-left">Status</th>
+                  <th className="p-3 text-left">Department</th>
+                  <th className="p-3 text-left">Location</th>
+                  <th className="p-3 text-left">Availability</th>
+                  <th className="p-3 text-left">Reason</th>
+                  <th className="p-3 text-left">ETA</th>
+                  <th className="p-3 text-left">Updated</th>
+                </tr>
+              </thead>
 
-              <div>
-                <label className="label">Online / Offline</label>
-                <select
-                  className="input"
-                  value={form.onlineStatus || "Online"}
-                  onChange={(event) =>
-                    setForm({ ...form, onlineStatus: event.target.value })
-                  }
-                >
-                  {onlineOptions.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <tbody>
+                {filteredMachines.map((m) => (
+                  <tr key={m.id} className="border-b align-top">
+                    <td className="p-3 font-black">{m.fleet}</td>
+                    <td className="p-3">{m.type}</td>
+                    <td className="p-3">{m.machineType}</td>
 
-              <div>
-                <label className="label">Hours Worked</label>
-                <input
-                  className="input"
-                  type="number"
-                  value={form.hoursWorked ?? 0}
-                  onChange={(event) =>
-                    setForm({
-                      ...form,
-                      hoursWorked: Number(event.target.value || 0),
-                    })
-                  }
-                />
-              </div>
+                    <td className="p-3">
+                      <select
+                        value={m.status}
+                        onChange={(e) => updateMachineStatus(m.id, e.target.value)}
+                        className="rounded-lg border border-slate-300 px-2 py-2 bg-white"
+                      >
+                        <option>Available</option>
+                        <option>Online</option>
+                        <option>Working</option>
+                        <option>Down</option>
+                        <option>Repairs</option>
+                        <option>Offline</option>
+                        <option>Major Repair</option>
+                      </select>
+                    </td>
 
-              <div>
-                <label className="label">Hours Down</label>
-                <input
-                  className="input"
-                  type="number"
-                  value={form.hoursDown ?? 0}
-                  onChange={(event) =>
-                    setForm({
-                      ...form,
-                      hoursDown: Number(event.target.value || 0),
-                    })
-                  }
-                />
-              </div>
+                    <td className="p-3">{m.department}</td>
+                    <td className="p-3">{m.location}</td>
+                    <td className="p-3 font-bold">{percent(m.availability)}</td>
 
-              <div className="span2">
-                <label className="label">Downtime Reason</label>
-                <input
-                  className="input"
-                  placeholder="Example: hydraulic leak, tyre, electrical fault"
-                  value={form.downtimeReason || ""}
-                  onChange={(event) =>
-                    setForm({ ...form, downtimeReason: event.target.value })
-                  }
-                />
-              </div>
+                    <td className="p-3">
+                      <input
+                        value={m.repairReason}
+                        onChange={(e) => updateMachineReason(m.id, e.target.value)}
+                        placeholder="Reason"
+                        className="w-full min-w-[220px] rounded-lg border border-slate-300 px-2 py-2"
+                      />
+                    </td>
 
-              <div className="span2">
-                <label className="label">Repair Reason</label>
-                <input
-                  className="input"
-                  placeholder="Repair notes"
-                  value={form.repairReason || ""}
-                  onChange={(event) =>
-                    setForm({ ...form, repairReason: event.target.value })
-                  }
-                />
-              </div>
-            </div>
+                    <td className="p-3">{m.sparesEta || "-"}</td>
 
-            <button
-              className="primaryButton"
-              onClick={() => void save()}
-              disabled={saving}
-            >
-              {saving ? "Saving..." : isOnline ? "Save Update" : "Save Offline"}
-            </button>
+                    <td className="p-3 text-slate-500">
+                      {m.updated ? new Date(m.updated).toLocaleString() : "-"}
+                    </td>
+                  </tr>
+                ))}
 
-            <button className="secondaryButton" onClick={() => void loadMachines()}>
-              Refresh Machines
-            </button>
-          </section>
-        )}
-
-        <section className="panel">
-          <h3>Offline mode and downtime</h3>
-          <p>
-            Open this page once while online to save the machine list on the phone.
-            After that, if signal drops, you can still select machines and save updates.
-            Offline updates stay queued and sync automatically when internet returns.
-            Downtime starts when the machine is booked Offline, Down, Repair,
-            Maintenance, or Major Repair. When it is booked back Online/Available,
-            the elapsed time is added to Hours Down.
-          </p>
+                {filteredMachines.length === 0 && (
+                  <tr>
+                    <td className="p-6 text-center text-slate-500" colSpan={10}>
+                      No machines found for this search/filter.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </section>
       </div>
-
-      <style jsx>{styles}</style>
-    </div>
+    </main>
   );
 }
-
-function normalizeMachine(machine: Partial<Machine>): Machine {
-  const status = String(machine.status || "Available");
-  const onlineStatus = String(
-    machine.onlineStatus ||
-      (status.toLowerCase().includes("avail") ? "Online" : "Offline")
-  );
-
-  return {
-    fleet: String(machine.fleet || "UNIT"),
-    type: String(machine.type || ""),
-    machineType: String(machine.machineType || machine.fleet || ""),
-    status,
-    location: String(machine.location || ""),
-    department: String(machine.department || ""),
-    availability: Number(machine.availability || 0),
-    updated: String(machine.updated || ""),
-    majorRepair: Boolean(machine.majorRepair),
-    repairReason: String(machine.repairReason || ""),
-    sparesEta: String(machine.sparesEta || ""),
-    hoursWorked: Number(machine.hoursWorked || 0),
-    hoursDown: Number(machine.hoursDown || 0),
-    onlineStatus,
-    downtimeReason: String(machine.downtimeReason || ""),
-    downtimeStartedAt: machine.downtimeStartedAt || null,
-  };
-}
-
-function isMachineRunning(status: string, onlineStatus: string) {
-  const cleanStatus = status.toLowerCase();
-  const cleanOnline = onlineStatus.toLowerCase();
-
-  if (cleanOnline === "offline") return false;
-  if (cleanStatus.includes("down")) return false;
-  if (cleanStatus.includes("repair")) return false;
-  if (cleanStatus.includes("maint")) return false;
-  if (cleanStatus.includes("major")) return false;
-
-  return true;
-}
-
-function roundToTwo(value: number) {
-  return Math.round(value * 100) / 100;
-}
-
-function getStatusClass(status: string) {
-  const value = status.toLowerCase();
-  if (value.includes("avail")) return "green";
-  if (value.includes("repair") || value.includes("maint")) return "yellow";
-  if (value.includes("major") || value.includes("down")) return "red";
-  return "blue";
-}
-
-function formatDateTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
-}
-
-function readQueue(): QueuedUpdate[] {
-  if (typeof window === "undefined") return [];
-
-  try {
-    const raw = window.localStorage.getItem(OFFLINE_QUEUE_KEY);
-    return raw ? (JSON.parse(raw) as QueuedUpdate[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeQueue(queue: QueuedUpdate[]) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
-}
-
-function queueUpdate(update: QueuedUpdate) {
-  const queue = readQueue();
-  writeQueue([...queue, update]);
-}
-
-function readCachedMachines(): Machine[] {
-  if (typeof window === "undefined") return [];
-
-  try {
-    const raw = window.localStorage.getItem("turbo_cached_machines_v1");
-    return raw ? (JSON.parse(raw) as Machine[]).map(normalizeMachine) : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeCachedMachines(machines: Machine[]) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem("turbo_cached_machines_v1", JSON.stringify(machines));
-}
-
-const styles = `
-  .page {
-    min-height: 100vh;
-    background:
-      radial-gradient(circle at top left, rgba(90, 130, 255, 0.18), transparent 26%),
-      radial-gradient(circle at top right, rgba(242, 154, 31, 0.14), transparent 22%),
-      linear-gradient(180deg, #091c43 0%, #081733 100%);
-    color: white;
-    font-family: Arial, Helvetica, sans-serif;
-  }
-
-  .appShell {
-    width: min(760px, calc(100% - 24px));
-    margin: 0 auto;
-    padding: 18px 0 28px;
-  }
-
-  .header {
-    display: flex;
-    justify-content: space-between;
-    gap: 14px;
-    align-items: flex-start;
-    margin-bottom: 14px;
-  }
-
-  .logoText {
-    color: #ffb24c;
-    font-weight: 900;
-    letter-spacing: 1px;
-    font-size: 18px;
-  }
-
-  h1 {
-    margin: 6px 0 4px;
-    font-size: 24px;
-    font-weight: 900;
-  }
-
-  h2 {
-    margin: 0 0 4px;
-    font-size: 22px;
-    font-weight: 900;
-  }
-
-  h3 {
-    margin: 0 0 8px;
-    font-size: 17px;
-  }
-
-  p {
-    margin: 0;
-    color: #c8d4ea;
-    line-height: 1.45;
-  }
-
-  .loginCard,
-  .panel,
-  .statusPanel {
-    background: linear-gradient(180deg, rgba(17, 42, 87, 0.96), rgba(10, 29, 63, 0.96));
-    border: 1px solid rgba(255,255,255,0.12);
-    border-radius: 20px;
-    box-shadow: 0 18px 40px rgba(0,0,0,0.26);
-  }
-
-  .loginCard {
-    width: min(420px, calc(100% - 24px));
-    margin: 40px auto;
-    padding: 22px;
-  }
-
-  .panel,
-  .statusPanel {
-    padding: 16px;
-    margin-bottom: 14px;
-  }
-
-  .statusPanel {
-    display: grid;
-    grid-template-columns: auto 1fr auto;
-    gap: 10px;
-    align-items: center;
-  }
-
-  .connectionOnline,
-  .connectionOffline {
-    border-radius: 999px;
-    padding: 8px 12px;
-    font-weight: 900;
-    font-size: 13px;
-  }
-
-  .connectionOnline {
-    background: rgba(65,184,108,0.18);
-    color: #52dd84;
-  }
-
-  .connectionOffline {
-    background: rgba(201,72,96,0.18);
-    color: #ff7b93;
-  }
-
-  .queueText {
-    color: #d8e1f6;
-    font-size: 14px;
-  }
-
-  .smallButton {
-    border: 1px solid rgba(255,255,255,0.16);
-    background: rgba(255,255,255,0.1);
-    color: white;
-    border-radius: 999px;
-    padding: 9px 12px;
-    font-weight: 900;
-    cursor: pointer;
-  }
-
-  .smallButton:disabled {
-    opacity: 0.45;
-    cursor: not-allowed;
-  }
-
-  .label {
-    display: block;
-    margin: 12px 0 7px;
-    color: #cfdbf4;
-    font-size: 13px;
-    font-weight: 800;
-  }
-
-  .input {
-    width: 100%;
-    border: none;
-    outline: none;
-    border-radius: 12px;
-    padding: 14px;
-    font-size: 16px;
-    font-weight: 700;
-    color: #17325f;
-    background: white;
-    box-sizing: border-box;
-  }
-
-  .primaryButton,
-  .secondaryButton,
-  .logoutButton {
-    width: 100%;
-    border: none;
-    border-radius: 14px;
-    padding: 15px 18px;
-    margin-top: 14px;
-    font-size: 16px;
-    font-weight: 900;
-    cursor: pointer;
-  }
-
-  .primaryButton {
-    background: linear-gradient(180deg, #ffb24c, #f29a1f);
-    color: white;
-  }
-
-  .primaryButton:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
-  .secondaryButton {
-    background: rgba(255,255,255,0.12);
-    color: white;
-    border: 1px solid rgba(255,255,255,0.16);
-  }
-
-  .logoutButton {
-    width: auto;
-    margin-top: 0;
-    background: #d94141;
-    color: white;
-    padding: 12px 16px;
-  }
-
-  .hintBox,
-  .warningBox {
-    margin-top: 14px;
-    border: 1px solid rgba(255,255,255,0.12);
-    border-radius: 14px;
-    padding: 12px;
-    color: #e7eeff;
-    background: rgba(255,255,255,0.05);
-    line-height: 1.45;
-  }
-
-  .warningBox {
-    background: rgba(255,177,75,0.14);
-    color: #ffcf67;
-    font-weight: 800;
-    margin-bottom: 12px;
-  }
-
-  .smallText {
-    margin-top: 8px;
-    color: #c8d4ea;
-    font-size: 13px;
-    font-weight: 700;
-  }
-
-  .machineHeader {
-    display: flex;
-    justify-content: space-between;
-    gap: 12px;
-    align-items: flex-start;
-    margin-bottom: 10px;
-  }
-
-  .statusBadge {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 96px;
-    border-radius: 999px;
-    padding: 8px 12px;
-    font-size: 13px;
-    font-weight: 900;
-  }
-
-  .green {
-    background: rgba(65,184,108,0.18);
-    color: #52dd84;
-  }
-
-  .yellow {
-    background: rgba(239,193,77,0.18);
-    color: #ffd75d;
-  }
-
-  .red {
-    background: rgba(201,72,96,0.18);
-    color: #ff7b93;
-  }
-
-  .blue {
-    background: rgba(79,140,255,0.18);
-    color: #8ab6ff;
-  }
-
-  .formGrid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
-  }
-
-  .span2 {
-    grid-column: span 2;
-  }
-
-  @media (max-width: 640px) {
-    .appShell {
-      width: min(100% - 16px, 760px);
-      padding-top: 10px;
-    }
-
-    .header,
-    .machineHeader {
-      flex-direction: column;
-    }
-
-    .statusPanel {
-      grid-template-columns: 1fr;
-    }
-
-    .logoutButton {
-      width: 100%;
-    }
-
-    .formGrid {
-      grid-template-columns: 1fr;
-    }
-
-    .span2 {
-      grid-column: span 1;
-    }
-
-    h1 {
-      font-size: 22px;
-    }
-  }
-`;
-
