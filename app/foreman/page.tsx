@@ -132,7 +132,10 @@ function normalize(row: any): Machine {
       clean(row.repair_reason) ||
       clean(row.repairReason) ||
       clean(row.work_required),
-    spares_eta: clean(row.spares_eta) || clean(row.sparesEta) || clean(row.eta),
+    spares_eta:
+      clean(row.spares_eta) ||
+      clean(row.sparesEta) ||
+      clean(row.eta),
     online_status:
       clean(row.online_status) ||
       clean(row.onlineStatus) ||
@@ -143,7 +146,7 @@ function normalize(row: any): Machine {
       Boolean(row.majorRepair) ||
       status.toLowerCase().includes("major"),
     updated_at: row.updated_at,
-    updated_by: row.updated_by || "Foreman",
+    updated_by: row.updated_by || "Control",
   };
 }
 
@@ -193,7 +196,7 @@ export default function ForemanPage() {
   const [lastRefresh, setLastRefresh] = useState("");
 
   useEffect(() => {
-    const saved = sessionStorage.getItem("turbo_foreman_control_login");
+    const saved = sessionStorage.getItem("turbo_machine_control_login");
     if (saved === "true") setLoggedIn(true);
   }, []);
 
@@ -204,7 +207,7 @@ export default function ForemanPage() {
     const pass = loginPassword.trim();
 
     if ((name === "controle" || name === "control") && pass === "1234") {
-      sessionStorage.setItem("turbo_foreman_control_login", "true");
+      sessionStorage.setItem("turbo_machine_control_login", "true");
       setLoggedIn(true);
       setLoginError("");
       return;
@@ -214,7 +217,7 @@ export default function ForemanPage() {
   }
 
   function logout() {
-    sessionStorage.removeItem("turbo_foreman_control_login");
+    sessionStorage.removeItem("turbo_machine_control_login");
     setLoggedIn(false);
     setLoginName("");
     setLoginPassword("");
@@ -235,16 +238,21 @@ export default function ForemanPage() {
 
       if (!error && data && data.length > 0) {
         const loaded = data.map(normalize).filter((m) => m.fleet);
+
         setTableName(table);
         setMachines(loaded);
         setLastRefresh(new Date().toLocaleTimeString());
 
-        if (!selectedKey && loaded.length > 0) {
-          setSelectedKey(machineKey(loaded[0]));
-          setDraft(loaded[0]);
-        } else if (selectedKey) {
-          const current = loaded.find((m) => machineKey(m) === selectedKey);
-          if (current) setDraft(current);
+        if (loaded.length > 0) {
+          const keepSelected =
+            selectedKey && loaded.find((m) => machineKey(m) === selectedKey);
+
+          const target = keepSelected || loaded[0];
+          setSelectedKey(machineKey(target));
+          setDraft(target);
+        } else {
+          setSelectedKey("");
+          setDraft(null);
         }
 
         setLoading(false);
@@ -253,6 +261,8 @@ export default function ForemanPage() {
     }
 
     setMachines([]);
+    setSelectedKey("");
+    setDraft(null);
     setMessage("No machine register data found in Supabase.");
     setLastRefresh(new Date().toLocaleTimeString());
     setLoading(false);
@@ -266,6 +276,7 @@ export default function ForemanPage() {
     }, 30000);
 
     return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const searchedMachines = useMemo(() => {
@@ -311,18 +322,23 @@ export default function ForemanPage() {
 
   useEffect(() => {
     if (searchedMachines.length === 0) {
-      setDraft(null);
       setSelectedKey("");
+      setDraft(null);
       return;
     }
 
-    const stillVisible = searchedMachines.find((m) => machineKey(m) === selectedKey);
+    const stillVisible = searchedMachines.find(
+      (m) => machineKey(m) === selectedKey
+    );
 
-    if (!stillVisible) {
-      setSelectedKey(machineKey(searchedMachines[0]));
-      setDraft(searchedMachines[0]);
+    if (stillVisible) {
+      setDraft(stillVisible);
+    } else {
+      const first = searchedMachines[0];
+      setSelectedKey(machineKey(first));
+      setDraft(first);
     }
-  }, [search]);
+  }, [searchedMachines, selectedKey]);
 
   function buildUpdatePayload(patch: Partial<Machine>) {
     const payload: any = {};
@@ -340,7 +356,7 @@ export default function ForemanPage() {
       online_status: patch.online_status,
       major_repair: patch.major_repair,
       updated_at: new Date().toISOString(),
-      updated_by: "Foreman",
+      updated_by: "Control",
     };
 
     Object.entries(writable).forEach(([key, value]) => {
@@ -352,7 +368,7 @@ export default function ForemanPage() {
 
   async function updateMachine(machine: Machine, patch: Partial<Machine>) {
     if (!tableName) {
-      setMessage("No Supabase table selected. Refresh the register first.");
+      setMessage("No Supabase table selected. Refresh first.");
       return;
     }
 
@@ -363,13 +379,12 @@ export default function ForemanPage() {
       ...machine,
       ...patch,
       updated_at: new Date().toISOString(),
-      updated_by: "Foreman",
+      updated_by: "Control",
     });
 
     setMachines((prev) =>
       prev.map((m) => (machineKey(m) === machineKey(machine) ? nextMachine : m))
     );
-
     setDraft(nextMachine);
 
     let query = supabase.from(tableName).update(buildUpdatePayload(patch));
@@ -427,18 +442,18 @@ export default function ForemanPage() {
       status: "Down",
       online_status: "Offline",
       availability: 0,
-      downtime_reason: machine.downtime_reason || "Booked offline by foreman",
+      downtime_reason: machine.downtime_reason || "Booked offline by control",
       major_repair: false,
     });
   }
 
   function updateDraft(patch: Partial<Machine>) {
-    setDraft((prev) => (prev ? { ...prev, ...patch } : prev));
+    setDraft((prev) => (prev ? normalize({ ...prev, ...patch }) : prev));
   }
 
   function selectMachine(key: string) {
     setSelectedKey(key);
-    const found = machines.find((m) => machineKey(m) === key);
+    const found = searchedMachines.find((m) => machineKey(m) === key);
     setDraft(found || null);
   }
 
@@ -447,7 +462,7 @@ export default function ForemanPage() {
       <main className="page loginPage">
         <section className="loginBox">
           <p className="eyebrow">TURBO ENERGY</p>
-          <h1>Foreman Control Login</h1>
+          <h1>Machine Controle Login</h1>
           <p className="loginText">
             Enter control details to access machine booking controls.
           </p>
@@ -490,7 +505,7 @@ export default function ForemanPage() {
       <section className="hero">
         <div>
           <p className="eyebrow">TURBO ENERGY</p>
-          <h1>Foreman Machine Control</h1>
+          <h1>Machine Controle</h1>
           <p>
             Search one fleet, update status, book online/offline, and monitor
             machines currently down or under repair.
@@ -520,11 +535,11 @@ export default function ForemanPage() {
         </div>
         <div className="stat">
           <span>Breakdowns / Offline</span>
-          <strong className="redText">{stats.offline}</strong>
+          <strong className="blueText">{stats.offline}</strong>
         </div>
         <div className="stat">
           <span>Major Repairs</span>
-          <strong className="orangeText">{stats.major}</strong>
+          <strong className="amberText">{stats.major}</strong>
         </div>
       </section>
 
@@ -590,7 +605,7 @@ export default function ForemanPage() {
                 </button>
 
                 <button
-                  className="btn redBtn"
+                  className="btn blueBtn"
                   onClick={() => bookOffline(draft)}
                   disabled={savingId === (draft.id ?? draft.fleet)}
                 >
@@ -708,6 +723,7 @@ export default function ForemanPage() {
               <div className="saveRow">
                 <span>
                   Last refresh: {lastRefresh || "-"}
+                  {tableName ? ` | ${tableName}` : ""}
                 </span>
 
                 <button
@@ -726,7 +742,7 @@ export default function ForemanPage() {
           <div className="panelHeader">
             <div>
               <h2>Machines on Breakdown / Offline</h2>
-              <p>Live list only. No full fleet cards shown here.</p>
+              <p>Live list only. Click a fleet number to load it on the left.</p>
             </div>
             <div className="countBadge">{offlineMachines.length}</div>
           </div>
@@ -768,7 +784,8 @@ export default function ForemanPage() {
                           className="fleetBtn"
                           onClick={() => {
                             setSearch(m.fleet);
-                            selectMachine(machineKey(m));
+                            setSelectedKey(machineKey(m));
+                            setDraft(m);
                           }}
                         >
                           {m.fleet}
@@ -808,8 +825,9 @@ const pageStyles = `
   .page {
     min-height: 100vh;
     background:
-      radial-gradient(circle at top left, rgba(30, 64, 175, 0.45), transparent 35%),
-      linear-gradient(135deg, #020817 0%, #071a33 45%, #0f2a4d 100%);
+      radial-gradient(circle at top left, rgba(59, 130, 246, 0.22), transparent 30%),
+      radial-gradient(circle at bottom right, rgba(14, 116, 144, 0.18), transparent 35%),
+      linear-gradient(135deg, #06142b 0%, #0a2244 45%, #123763 100%);
     padding: 22px;
     font-family: Arial, Helvetica, sans-serif;
     color: #ffffff;
@@ -888,18 +906,18 @@ const pageStyles = `
   }
 
   .greenBtn {
-    background: #065f46;
+    background: #0f766e;
     color: #ffffff;
   }
 
-  .redBtn {
-    background: #991b1b;
+  .blueBtn {
+    background: #2563eb;
     color: #ffffff;
   }
 
   .notice {
-    background: #0b1224;
-    border-left: 6px solid #f97316;
+    background: rgba(2, 8, 23, 0.85);
+    border-left: 6px solid #38bdf8;
     color: #ffffff;
     padding: 14px 18px;
     border-radius: 12px;
@@ -938,12 +956,12 @@ const pageStyles = `
     color: #047857;
   }
 
-  .redText {
-    color: #dc2626;
+  .blueText {
+    color: #2563eb;
   }
 
-  .orangeText {
-    color: #ea580c;
+  .amberText {
+    color: #d97706;
   }
 
   .workArea {
@@ -1009,7 +1027,7 @@ const pageStyles = `
 
   .machineFace {
     margin-top: 14px;
-    background: #1e4677;
+    background: #1d4b80;
     border: 1px solid rgba(191, 219, 254, 0.18);
     border-radius: 18px;
     padding: 16px;
@@ -1058,8 +1076,8 @@ const pageStyles = `
   }
 
   .countBadge {
-    background: #334155;
-    color: #fbbf24;
+    background: #1e3a5f;
+    color: #f8fafc;
     font-size: 22px;
     font-weight: 900;
     min-width: 52px;
@@ -1103,7 +1121,7 @@ const pageStyles = `
 
   .fleetBtn {
     background: transparent;
-    color: #ffffff;
+    color: #bfdbfe;
     border: 0;
     font-weight: 900;
     text-decoration: underline;
@@ -1130,30 +1148,34 @@ const pageStyles = `
     justify-content: center;
     border-radius: 999px;
     padding: 7px 14px;
-    min-width: 90px;
+    min-width: 92px;
     font-size: 12px;
     font-weight: 900;
   }
 
   .good {
     background: #0f766e;
-    color: #bbf7d0;
+    color: #d1fae5;
   }
 
   .down {
-    background: #581c87;
-    color: #fb7185;
+    background: #2563eb;
+    color: #dbeafe;
   }
 
-  .repair,
+  .repair {
+    background: #1d4ed8;
+    color: #dbeafe;
+  }
+
   .maintenance {
-    background: #475569;
-    color: #fde047;
+    background: #0ea5e9;
+    color: #ecfeff;
   }
 
   .major {
-    background: #92400e;
-    color: #fde68a;
+    background: #d97706;
+    color: #fff7ed;
   }
 
   .neutral {
@@ -1185,7 +1207,7 @@ const pageStyles = `
   }
 
   .loginError {
-    background: #7f1d1d;
+    background: #1d4ed8;
     color: #ffffff;
     padding: 12px;
     border-radius: 12px;
