@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -57,6 +57,20 @@ const statuses = [
   "Standby",
 ];
 
+const quickReasons = [
+  "",
+  "Checks and greasing",
+  "Service",
+  "Tyre replacement",
+  "Hydraulic leak",
+  "Electrical fault",
+  "Engine fault",
+  "Transmission fault",
+  "Brake fault",
+  "Accident damage",
+  "Awaiting spares",
+];
+
 function clean(value: any) {
   return String(value ?? "").trim();
 }
@@ -64,6 +78,10 @@ function clean(value: any) {
 function num(value: any) {
   const n = Number(value);
   return Number.isFinite(n) ? n : 0;
+}
+
+function machineKey(machine: Machine) {
+  return String(machine.id ?? machine.fleet);
 }
 
 function normalize(row: any): Machine {
@@ -175,11 +193,9 @@ function statusClass(status: string) {
   return "neutral";
 }
 
-function machineKey(machine: Machine) {
-  return String(machine.id ?? machine.fleet);
-}
+export default function MachineControlPage() {
+  const selectedKeyRef = useRef("");
 
-export default function ForemanPage() {
   const [loggedIn, setLoggedIn] = useState(false);
   const [loginName, setLoginName] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
@@ -194,6 +210,10 @@ export default function ForemanPage() {
   const [savingId, setSavingId] = useState<string | number | null>(null);
   const [message, setMessage] = useState("");
   const [lastRefresh, setLastRefresh] = useState("");
+
+  useEffect(() => {
+    selectedKeyRef.current = selectedKey;
+  }, [selectedKey]);
 
   useEffect(() => {
     const saved = sessionStorage.getItem("turbo_machine_control_login");
@@ -223,8 +243,8 @@ export default function ForemanPage() {
     setLoginPassword("");
   }
 
-  async function loadMachines() {
-    setLoading(true);
+  async function loadMachines(showLoading = true) {
+    if (showLoading) setLoading(true);
     setMessage("");
 
     if (!supabaseUrl || !supabaseAnonKey) {
@@ -238,20 +258,25 @@ export default function ForemanPage() {
 
       if (!error && data && data.length > 0) {
         const loaded = data.map(normalize).filter((m) => m.fleet);
+        const keepKey = selectedKeyRef.current;
 
         setTableName(table);
         setMachines(loaded);
         setLastRefresh(new Date().toLocaleTimeString());
 
         if (loaded.length > 0) {
-          const keepSelected =
-            selectedKey && loaded.find((m) => machineKey(m) === selectedKey);
+          const kept = keepKey
+            ? loaded.find((m) => machineKey(m) === keepKey)
+            : null;
 
-          const target = keepSelected || loaded[0];
+          const target = kept || loaded[0];
+
           setSelectedKey(machineKey(target));
+          selectedKeyRef.current = machineKey(target);
           setDraft(target);
         } else {
           setSelectedKey("");
+          selectedKeyRef.current = "";
           setDraft(null);
         }
 
@@ -262,6 +287,7 @@ export default function ForemanPage() {
 
     setMachines([]);
     setSelectedKey("");
+    selectedKeyRef.current = "";
     setDraft(null);
     setMessage("No machine register data found in Supabase.");
     setLastRefresh(new Date().toLocaleTimeString());
@@ -272,12 +298,36 @@ export default function ForemanPage() {
     loadMachines();
 
     const timer = setInterval(() => {
-      loadMachines();
+      loadMachines(false);
     }, 30000);
 
     return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!tableName) return;
+
+    const channel = supabase
+      .channel(`machine-control-${tableName}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: tableName,
+        },
+        () => {
+          loadMachines(false);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tableName]);
 
   const searchedMachines = useMemo(() => {
     const q = search.toLowerCase().trim();
@@ -323,6 +373,7 @@ export default function ForemanPage() {
   useEffect(() => {
     if (searchedMachines.length === 0) {
       setSelectedKey("");
+      selectedKeyRef.current = "";
       setDraft(null);
       return;
     }
@@ -336,6 +387,7 @@ export default function ForemanPage() {
     } else {
       const first = searchedMachines[0];
       setSelectedKey(machineKey(first));
+      selectedKeyRef.current = machineKey(first);
       setDraft(first);
     }
   }, [searchedMachines, selectedKey]);
@@ -385,7 +437,10 @@ export default function ForemanPage() {
     setMachines((prev) =>
       prev.map((m) => (machineKey(m) === machineKey(machine) ? nextMachine : m))
     );
+
     setDraft(nextMachine);
+    setSelectedKey(machineKey(nextMachine));
+    selectedKeyRef.current = machineKey(nextMachine);
 
     let query = supabase.from(tableName).update(buildUpdatePayload(patch));
 
@@ -398,10 +453,11 @@ export default function ForemanPage() {
     const { error } = await query;
 
     if (error) {
-      setMessage(`Supabase update failed: ${error.message}`);
-      await loadMachines();
+      setMessage(`Update failed: ${error.message}`);
+      await loadMachines(false);
     } else {
-      setMessage(`${machine.fleet} updated successfully.`);
+      setMessage(`${machine.fleet} updated and saved to the live register.`);
+      await loadMachines(false);
     }
 
     setSavingId(null);
@@ -433,6 +489,7 @@ export default function ForemanPage() {
       hours_down: 0,
       downtime_reason: "",
       repair_reason: "",
+      spares_eta: "",
       major_repair: false,
     });
   }
@@ -453,6 +510,7 @@ export default function ForemanPage() {
 
   function selectMachine(key: string) {
     setSelectedKey(key);
+    selectedKeyRef.current = key;
     const found = searchedMachines.find((m) => machineKey(m) === key);
     setDraft(found || null);
   }
@@ -507,13 +565,13 @@ export default function ForemanPage() {
           <p className="eyebrow">TURBO ENERGY</p>
           <h1>Machine Controle</h1>
           <p>
-            Search one fleet, update status, book online/offline, and monitor
-            machines currently down or under repair.
+            Search one machine, update its status, book online/offline, and
+            monitor current breakdowns from one screen.
           </p>
         </div>
 
         <div className="heroActions">
-          <button className="btn whiteBtn" onClick={loadMachines}>
+          <button className="btn whiteBtn" onClick={() => loadMachines()}>
             Refresh
           </button>
           <button className="btn outlineBtn" onClick={logout}>
@@ -548,21 +606,31 @@ export default function ForemanPage() {
           <div className="panelHeader">
             <div>
               <h2>Machine Control</h2>
-              <p>Search fleet number, select machine, edit, then save.</p>
+              <p>Search, select, edit, then save updates.</p>
             </div>
           </div>
 
-          <label>
-            Search fleet
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Example: FEL05, TRL05, HT19..."
-            />
-          </label>
+          <div className="searchRow">
+            <label>
+              Search fleet
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Example: FEL05, TRL05, HT19..."
+              />
+            </label>
+
+            <button
+              className="btn smallBtn clearBtn"
+              onClick={() => setSearch("")}
+              type="button"
+            >
+              Clear
+            </button>
+          </div>
 
           <label>
-            Select machine
+            Select machine ({searchedMachines.length} found)
             <select
               value={selectedKey}
               onChange={(e) => selectMachine(e.target.value)}
@@ -612,6 +680,8 @@ export default function ForemanPage() {
                   Book Offline
                 </button>
               </div>
+
+              <div className="sectionTitle">Machine Status</div>
 
               <div className="formGrid">
                 <label>
@@ -663,7 +733,9 @@ export default function ForemanPage() {
                   Availability %
                   <input
                     value={draft.availability ?? ""}
-                    onChange={(e) => updateDraft({ availability: e.target.value })}
+                    onChange={(e) =>
+                      updateDraft({ availability: e.target.value })
+                    }
                   />
                 </label>
 
@@ -671,7 +743,9 @@ export default function ForemanPage() {
                   Hours Worked
                   <input
                     value={draft.hours_worked ?? ""}
-                    onChange={(e) => updateDraft({ hours_worked: e.target.value })}
+                    onChange={(e) =>
+                      updateDraft({ hours_worked: e.target.value })
+                    }
                   />
                 </label>
 
@@ -679,8 +753,32 @@ export default function ForemanPage() {
                   Hours Down
                   <input
                     value={draft.hours_down ?? ""}
-                    onChange={(e) => updateDraft({ hours_down: e.target.value })}
+                    onChange={(e) =>
+                      updateDraft({ hours_down: e.target.value })
+                    }
                   />
+                </label>
+              </div>
+
+              <div className="sectionTitle">Downtime Details</div>
+
+              <div className="formGrid">
+                <label>
+                  Quick Downtime Reason
+                  <select
+                    value=""
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        updateDraft({ downtime_reason: e.target.value });
+                      }
+                    }}
+                  >
+                    {quickReasons.map((reason) => (
+                      <option key={reason} value={reason}>
+                        {reason || "Select common reason..."}
+                      </option>
+                    ))}
+                  </select>
                 </label>
 
                 <label>
@@ -707,7 +805,10 @@ export default function ForemanPage() {
                   ETA / Spares
                   <input
                     value={draft.spares_eta ?? ""}
-                    onChange={(e) => updateDraft({ spares_eta: e.target.value })}
+                    onChange={(e) =>
+                      updateDraft({ spares_eta: e.target.value })
+                    }
+                    placeholder="Example: Awaiting spares, 14 May..."
                   />
                 </label>
 
@@ -727,11 +828,13 @@ export default function ForemanPage() {
                 </span>
 
                 <button
-                  className="btn whiteBtn"
+                  className="btn whiteBtn saveBtn"
                   onClick={saveDraft}
                   disabled={savingId === (draft.id ?? draft.fleet)}
                 >
-                  Save Updates
+                  {savingId === (draft.id ?? draft.fleet)
+                    ? "Saving..."
+                    : "Save Updates"}
                 </button>
               </div>
             </div>
@@ -742,7 +845,7 @@ export default function ForemanPage() {
           <div className="panelHeader">
             <div>
               <h2>Machines on Breakdown / Offline</h2>
-              <p>Live list only. Click a fleet number to load it on the left.</p>
+              <p>Click a fleet number to load it into Machine Control.</p>
             </div>
             <div className="countBadge">{offlineMachines.length}</div>
           </div>
@@ -778,16 +881,18 @@ export default function ForemanPage() {
                   </tr>
                 ) : (
                   offlineMachines.map((m) => (
-                    <tr key={`${m.id ?? m.fleet}-offline`}>
+                    <tr
+                      key={`${m.id ?? m.fleet}-offline`}
+                      className="clickableRow"
+                      onClick={() => {
+                        setSearch(m.fleet);
+                        setSelectedKey(machineKey(m));
+                        selectedKeyRef.current = machineKey(m);
+                        setDraft(m);
+                      }}
+                    >
                       <td>
-                        <button
-                          className="fleetBtn"
-                          onClick={() => {
-                            setSearch(m.fleet);
-                            setSelectedKey(machineKey(m));
-                            setDraft(m);
-                          }}
-                        >
+                        <button className="fleetBtn" type="button">
                           {m.fleet}
                         </button>
                       </td>
@@ -828,7 +933,7 @@ const pageStyles = `
       radial-gradient(circle at top left, rgba(59, 130, 246, 0.22), transparent 30%),
       radial-gradient(circle at bottom right, rgba(14, 116, 144, 0.18), transparent 35%),
       linear-gradient(135deg, #06142b 0%, #0a2244 45%, #123763 100%);
-    padding: 22px;
+    padding: 18px;
     font-family: Arial, Helvetica, sans-serif;
     color: #ffffff;
   }
@@ -837,34 +942,35 @@ const pageStyles = `
   .notice,
   .stats,
   .workArea {
-    max-width: 1560px;
-    margin: 0 auto 16px auto;
+    max-width: 1600px;
+    margin: 0 auto 14px auto;
   }
 
   .hero {
     background: #020817;
     border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 18px;
-    padding: 24px;
+    padding: 20px 22px;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 18px;
     box-shadow: 0 18px 44px rgba(0, 0, 0, 0.32);
+    min-height: 108px;
   }
 
   .eyebrow {
     letter-spacing: 6px;
     font-size: 12px;
     font-weight: 900;
-    margin: 0 0 8px;
+    margin: 0 0 7px;
     color: #bfdbfe;
   }
 
   h1 {
-    font-size: 36px;
+    font-size: 34px;
     line-height: 1;
-    margin: 0 0 10px;
+    margin: 0 0 8px;
   }
 
   .hero p,
@@ -887,11 +993,17 @@ const pageStyles = `
     font-weight: 900;
     cursor: pointer;
     white-space: nowrap;
+    transition: transform 0.15s ease, opacity 0.15s ease;
+  }
+
+  .btn:hover {
+    transform: translateY(-1px);
   }
 
   .btn:disabled {
     opacity: 0.55;
     cursor: not-allowed;
+    transform: none;
   }
 
   .whiteBtn {
@@ -915,11 +1027,20 @@ const pageStyles = `
     color: #ffffff;
   }
 
+  .smallBtn {
+    padding: 11px 14px;
+  }
+
+  .clearBtn {
+    background: #dbeafe;
+    color: #0f172a;
+  }
+
   .notice {
-    background: rgba(2, 8, 23, 0.85);
+    background: rgba(2, 8, 23, 0.88);
     border-left: 6px solid #38bdf8;
     color: #ffffff;
-    padding: 14px 18px;
+    padding: 13px 18px;
     border-radius: 12px;
     font-weight: 800;
   }
@@ -934,7 +1055,7 @@ const pageStyles = `
     background: #ffffff;
     color: #020817;
     border-radius: 16px;
-    padding: 16px;
+    padding: 15px 16px;
     box-shadow: 0 14px 30px rgba(0, 0, 0, 0.22);
   }
 
@@ -948,8 +1069,8 @@ const pageStyles = `
 
   .stat strong {
     display: block;
-    font-size: 32px;
-    margin-top: 6px;
+    font-size: 30px;
+    margin-top: 5px;
   }
 
   .greenText {
@@ -966,23 +1087,23 @@ const pageStyles = `
 
   .workArea {
     display: grid;
-    grid-template-columns: 500px minmax(0, 1fr);
+    grid-template-columns: 470px minmax(0, 1fr);
     gap: 16px;
     align-items: start;
   }
 
   .controlPanel,
   .breakdownPanel {
-    background: #123763;
+    background: rgba(18, 55, 99, 0.96);
     border: 1px solid rgba(191, 219, 254, 0.22);
     border-radius: 20px;
-    padding: 20px;
+    padding: 18px;
     box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28);
   }
 
   .controlPanel {
     position: sticky;
-    top: 18px;
+    top: 14px;
   }
 
   .panelHeader {
@@ -990,12 +1111,12 @@ const pageStyles = `
     justify-content: space-between;
     align-items: flex-start;
     gap: 12px;
-    margin-bottom: 16px;
+    margin-bottom: 14px;
   }
 
   .panelHeader h2 {
     margin: 0 0 6px;
-    font-size: 22px;
+    font-size: 21px;
   }
 
   label {
@@ -1005,7 +1126,7 @@ const pageStyles = `
     color: #ffffff;
     font-size: 12px;
     font-weight: 900;
-    margin-bottom: 12px;
+    margin-bottom: 11px;
   }
 
   input,
@@ -1022,15 +1143,22 @@ const pageStyles = `
 
   input:focus,
   select:focus {
-    box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.4);
+    box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.42);
+  }
+
+  .searchRow {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+    align-items: end;
   }
 
   .machineFace {
-    margin-top: 14px;
+    margin-top: 13px;
     background: #1d4b80;
     border: 1px solid rgba(191, 219, 254, 0.18);
     border-radius: 18px;
-    padding: 16px;
+    padding: 15px;
   }
 
   .machineTitle {
@@ -1038,11 +1166,11 @@ const pageStyles = `
     justify-content: space-between;
     align-items: flex-start;
     gap: 12px;
-    margin-bottom: 14px;
+    margin-bottom: 13px;
   }
 
   .machineTitle h3 {
-    margin: 0 0 6px;
+    margin: 0 0 5px;
     font-size: 20px;
   }
 
@@ -1056,7 +1184,19 @@ const pageStyles = `
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 10px;
-    margin-bottom: 14px;
+    margin-bottom: 13px;
+  }
+
+  .sectionTitle {
+    margin: 12px 0 9px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    background: rgba(2, 8, 23, 0.32);
+    color: #dbeafe;
+    font-weight: 900;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
   }
 
   .formGrid {
@@ -1075,6 +1215,10 @@ const pageStyles = `
     font-size: 12px;
   }
 
+  .saveBtn {
+    min-width: 140px;
+  }
+
   .countBadge {
     background: #1e3a5f;
     color: #f8fafc;
@@ -1090,7 +1234,7 @@ const pageStyles = `
   .tableWrap {
     overflow: auto;
     border-radius: 14px;
-    max-height: calc(100vh - 270px);
+    max-height: calc(100vh - 260px);
   }
 
   table {
@@ -1108,15 +1252,23 @@ const pageStyles = `
     color: #020817;
     text-align: left;
     font-size: 12px;
-    padding: 14px;
+    padding: 13px;
   }
 
   td {
     border-top: 1px solid rgba(255, 255, 255, 0.08);
-    padding: 14px;
+    padding: 13px;
     color: #ffffff;
     font-size: 13px;
     vertical-align: top;
+  }
+
+  .clickableRow {
+    cursor: pointer;
+  }
+
+  .clickableRow:hover {
+    background: rgba(59, 130, 246, 0.18);
   }
 
   .fleetBtn {
@@ -1215,7 +1367,7 @@ const pageStyles = `
     margin-bottom: 12px;
   }
 
-  @media (max-width: 1100px) {
+  @media (max-width: 1150px) {
     .workArea {
       grid-template-columns: 1fr;
     }
@@ -1237,11 +1389,16 @@ const pageStyles = `
     .hero {
       flex-direction: column;
       align-items: stretch;
-      padding: 20px;
+      padding: 18px;
     }
 
     h1 {
       font-size: 28px;
+    }
+
+    .heroActions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
     }
 
     .stats {
@@ -1260,11 +1417,28 @@ const pageStyles = `
       flex-direction: column;
       align-items: stretch;
     }
+
+    .searchRow {
+      grid-template-columns: 1fr;
+    }
+
+    .clearBtn {
+      width: 100%;
+    }
   }
 
   @media (max-width: 460px) {
     .stats {
       grid-template-columns: 1fr;
+    }
+
+    .heroActions {
+      grid-template-columns: 1fr;
+    }
+
+    .controlPanel,
+    .breakdownPanel {
+      padding: 14px;
     }
   }
 `;
