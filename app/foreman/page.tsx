@@ -5,7 +5,6 @@ import { createClient } from "@supabase/supabase-js";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
-
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 type Machine = {
@@ -107,14 +106,8 @@ function normalize(row: any): Machine {
     machine: clean(row.machine) || clean(row.name) || type,
     machine_type: type,
     status,
-    department:
-      clean(row.department) ||
-      clean(row.dept) ||
-      "Workshop",
-    location:
-      clean(row.location) ||
-      clean(row.site) ||
-      "Hwange",
+    department: clean(row.department) || clean(row.dept) || "Workshop",
+    location: clean(row.location) || clean(row.site) || "Hwange",
     availability:
       row.availability ??
       row.availability_percent ??
@@ -139,10 +132,7 @@ function normalize(row: any): Machine {
       clean(row.repair_reason) ||
       clean(row.repairReason) ||
       clean(row.work_required),
-    spares_eta:
-      clean(row.spares_eta) ||
-      clean(row.sparesEta) ||
-      clean(row.eta),
+    spares_eta: clean(row.spares_eta) || clean(row.sparesEta) || clean(row.eta),
     online_status:
       clean(row.online_status) ||
       clean(row.onlineStatus) ||
@@ -182,14 +172,53 @@ function statusClass(status: string) {
   return "neutral";
 }
 
+function machineKey(machine: Machine) {
+  return String(machine.id ?? machine.fleet);
+}
+
 export default function ForemanPage() {
+  const [loggedIn, setLoggedIn] = useState(false);
+  const [loginName, setLoginName] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginError, setLoginError] = useState("");
+
   const [tableName, setTableName] = useState("");
   const [machines, setMachines] = useState<Machine[]>([]);
   const [search, setSearch] = useState("");
+  const [selectedKey, setSelectedKey] = useState("");
+  const [draft, setDraft] = useState<Machine | null>(null);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | number | null>(null);
   const [message, setMessage] = useState("");
   const [lastRefresh, setLastRefresh] = useState("");
+
+  useEffect(() => {
+    const saved = sessionStorage.getItem("turbo_foreman_control_login");
+    if (saved === "true") setLoggedIn(true);
+  }, []);
+
+  function handleLogin(e: React.FormEvent) {
+    e.preventDefault();
+
+    const name = loginName.trim().toLowerCase();
+    const pass = loginPassword.trim();
+
+    if ((name === "controle" || name === "control") && pass === "1234") {
+      sessionStorage.setItem("turbo_foreman_control_login", "true");
+      setLoggedIn(true);
+      setLoginError("");
+      return;
+    }
+
+    setLoginError("Invalid control login details.");
+  }
+
+  function logout() {
+    sessionStorage.removeItem("turbo_foreman_control_login");
+    setLoggedIn(false);
+    setLoginName("");
+    setLoginPassword("");
+  }
 
   async function loadMachines() {
     setLoading(true);
@@ -202,24 +231,29 @@ export default function ForemanPage() {
     }
 
     for (const table of TABLE_CANDIDATES) {
-      const { data, error } = await supabase
-        .from(table)
-        .select("*")
-        .limit(1000);
+      const { data, error } = await supabase.from(table).select("*").limit(1500);
 
       if (!error && data && data.length > 0) {
+        const loaded = data.map(normalize).filter((m) => m.fleet);
         setTableName(table);
-        setMachines(data.map(normalize).filter((m) => m.fleet));
+        setMachines(loaded);
         setLastRefresh(new Date().toLocaleTimeString());
+
+        if (!selectedKey && loaded.length > 0) {
+          setSelectedKey(machineKey(loaded[0]));
+          setDraft(loaded[0]);
+        } else if (selectedKey) {
+          const current = loaded.find((m) => machineKey(m) === selectedKey);
+          if (current) setDraft(current);
+        }
+
         setLoading(false);
         return;
       }
     }
 
     setMachines([]);
-    setMessage(
-      "No machine register data found in Supabase. Check that the admin dashboard is saving the full register to the correct Supabase table."
-    );
+    setMessage("No machine register data found in Supabase.");
     setLastRefresh(new Date().toLocaleTimeString());
     setLoading(false);
   }
@@ -234,7 +268,7 @@ export default function ForemanPage() {
     return () => clearInterval(timer);
   }, []);
 
-  const filteredMachines = useMemo(() => {
+  const searchedMachines = useMemo(() => {
     const q = search.toLowerCase().trim();
 
     if (!q) return machines;
@@ -260,8 +294,8 @@ export default function ForemanPage() {
   }, [machines, search]);
 
   const offlineMachines = useMemo(
-    () => filteredMachines.filter(isOfflineOrRepair),
-    [filteredMachines]
+    () => machines.filter(isOfflineOrRepair),
+    [machines]
   );
 
   const stats = useMemo(() => {
@@ -275,7 +309,22 @@ export default function ForemanPage() {
     return { total, online, offline, major };
   }, [machines]);
 
-  function buildUpdatePayload(machine: Machine, patch: Partial<Machine>) {
+  useEffect(() => {
+    if (searchedMachines.length === 0) {
+      setDraft(null);
+      setSelectedKey("");
+      return;
+    }
+
+    const stillVisible = searchedMachines.find((m) => machineKey(m) === selectedKey);
+
+    if (!stillVisible) {
+      setSelectedKey(machineKey(searchedMachines[0]));
+      setDraft(searchedMachines[0]);
+    }
+  }, [search]);
+
+  function buildUpdatePayload(patch: Partial<Machine>) {
     const payload: any = {};
 
     const writable = {
@@ -310,22 +359,20 @@ export default function ForemanPage() {
     const id = machine.id ?? machine.fleet;
     setSavingId(id);
 
-    const nextMachine = {
+    const nextMachine = normalize({
       ...machine,
       ...patch,
       updated_at: new Date().toISOString(),
       updated_by: "Foreman",
-    };
+    });
 
     setMachines((prev) =>
-      prev.map((m) =>
-        (m.id ?? m.fleet) === id ? normalize(nextMachine) : m
-      )
+      prev.map((m) => (machineKey(m) === machineKey(machine) ? nextMachine : m))
     );
 
-    const payload = buildUpdatePayload(machine, patch);
+    setDraft(nextMachine);
 
-    let query = supabase.from(tableName).update(payload);
+    let query = supabase.from(tableName).update(buildUpdatePayload(patch));
 
     if (machine.id !== undefined && machine.id !== null) {
       query = query.eq("id", machine.id);
@@ -345,6 +392,24 @@ export default function ForemanPage() {
     setSavingId(null);
   }
 
+  async function saveDraft() {
+    if (!draft) return;
+
+    await updateMachine(draft, {
+      status: draft.status,
+      department: draft.department,
+      location: draft.location,
+      availability: draft.availability,
+      hours_worked: draft.hours_worked,
+      hours_down: draft.hours_down,
+      downtime_reason: draft.downtime_reason,
+      repair_reason: draft.repair_reason,
+      spares_eta: draft.spares_eta,
+      online_status: draft.online_status,
+      major_repair: draft.status === "Major Repair",
+    });
+  }
+
   async function bookOnline(machine: Machine) {
     await updateMachine(machine, {
       status: "Available",
@@ -362,10 +427,62 @@ export default function ForemanPage() {
       status: "Down",
       online_status: "Offline",
       availability: 0,
-      downtime_reason:
-        machine.downtime_reason || "Booked offline by foreman",
+      downtime_reason: machine.downtime_reason || "Booked offline by foreman",
       major_repair: false,
     });
+  }
+
+  function updateDraft(patch: Partial<Machine>) {
+    setDraft((prev) => (prev ? { ...prev, ...patch } : prev));
+  }
+
+  function selectMachine(key: string) {
+    setSelectedKey(key);
+    const found = machines.find((m) => machineKey(m) === key);
+    setDraft(found || null);
+  }
+
+  if (!loggedIn) {
+    return (
+      <main className="page loginPage">
+        <section className="loginBox">
+          <p className="eyebrow">TURBO ENERGY</p>
+          <h1>Foreman Control Login</h1>
+          <p className="loginText">
+            Enter control details to access machine booking controls.
+          </p>
+
+          <form onSubmit={handleLogin} className="loginForm">
+            <label>
+              Username
+              <input
+                value={loginName}
+                onChange={(e) => setLoginName(e.target.value)}
+                placeholder="controle"
+              />
+            </label>
+
+            <label>
+              Password
+              <input
+                type="password"
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.target.value)}
+                placeholder="1234"
+              />
+            </label>
+
+            {loginError && <div className="loginError">{loginError}</div>}
+
+            <button className="btn whiteBtn" type="submit">
+              Login
+            </button>
+          </form>
+        </section>
+
+        <style jsx>{pageStyles}</style>
+      </main>
+    );
   }
 
   return (
@@ -375,733 +492,757 @@ export default function ForemanPage() {
           <p className="eyebrow">TURBO ENERGY</p>
           <h1>Foreman Machine Control</h1>
           <p>
-            Supabase live register. Book machines online or offline and update
-            repair information from phone or computer.
+            Search one fleet, update status, book online/offline, and monitor
+            machines currently down or under repair.
           </p>
         </div>
 
-        <button className="btn light" onClick={loadMachines}>
-          Refresh Register
-        </button>
+        <div className="heroActions">
+          <button className="btn whiteBtn" onClick={loadMachines}>
+            Refresh
+          </button>
+          <button className="btn outlineBtn" onClick={logout}>
+            Logout
+          </button>
+        </div>
       </section>
 
       {message && <section className="notice">{message}</section>}
 
       <section className="stats">
         <div className="stat">
-          <span>Total Machines</span>
+          <span>Total Fleet</span>
           <strong>{stats.total}</strong>
         </div>
-
         <div className="stat">
           <span>Online</span>
-          <strong className="green">{stats.online}</strong>
+          <strong className="greenText">{stats.online}</strong>
         </div>
-
         <div className="stat">
-          <span>Booked Offline</span>
-          <strong className="red">{stats.offline}</strong>
+          <span>Breakdowns / Offline</span>
+          <strong className="redText">{stats.offline}</strong>
         </div>
-
         <div className="stat">
           <span>Major Repairs</span>
-          <strong className="orange">{stats.major}</strong>
+          <strong className="orangeText">{stats.major}</strong>
         </div>
       </section>
 
-      <section className="toolbar">
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search fleet, type, status, department, location, reason..."
-        />
-
-        <p>
-          Last refresh: {lastRefresh || "-"}{" "}
-          {tableName ? `| Supabase table: ${tableName}` : ""}
-        </p>
-      </section>
-
-      <section className="panel">
-        <div className="panelHeader">
-          <div>
-            <h2>Machines Booked for Repairs / Offline</h2>
-            <p>
-              All machines currently booked down, offline, maintenance, repair,
-              or major repair.
-            </p>
+      <section className="workArea">
+        <section className="controlPanel">
+          <div className="panelHeader">
+            <div>
+              <h2>Machine Control</h2>
+              <p>Search fleet number, select machine, edit, then save.</p>
+            </div>
           </div>
 
-          <div className="countBadge">{offlineMachines.length}</div>
-        </div>
+          <label>
+            Search fleet
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Example: FEL05, TRL05, HT19..."
+            />
+          </label>
 
-        <div className="tableWrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Fleet</th>
-                <th>Type</th>
-                <th>Department</th>
-                <th>Status</th>
-                <th>Online</th>
-                <th>Hours Down</th>
-                <th>Downtime Reason</th>
-                <th>Repair Reason</th>
-                <th>ETA / Spares</th>
-              </tr>
-            </thead>
+          <label>
+            Select machine
+            <select
+              value={selectedKey}
+              onChange={(e) => selectMachine(e.target.value)}
+            >
+              {searchedMachines.map((m) => (
+                <option key={machineKey(m)} value={machineKey(m)}>
+                  {m.fleet} - {m.type} - {m.status}
+                </option>
+              ))}
+            </select>
+          </label>
 
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan={9} className="empty">
-                    Loading Supabase machine register...
-                  </td>
-                </tr>
-              ) : offlineMachines.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="empty">
-                    No machines currently booked offline.
-                  </td>
-                </tr>
-              ) : (
-                offlineMachines.map((m) => (
-                  <tr key={`${m.id ?? m.fleet}-offline`}>
-                    <td>{m.fleet}</td>
-                    <td>{m.type}</td>
-                    <td>{m.department}</td>
-                    <td>
-                      <span className={`pill ${statusClass(m.status)}`}>
-                        {m.status}
-                      </span>
-                    </td>
-                    <td>{m.online_status || "-"}</td>
-                    <td>{num(m.hours_down).toFixed(1)}</td>
-                    <td>{m.downtime_reason || "-"}</td>
-                    <td>{m.repair_reason || "-"}</td>
-                    <td>{m.spares_eta || "-"}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section className="panel">
-        <div className="panelHeader">
-          <div>
-            <h2>Machine List and Controls</h2>
-            <p>
-              Search the fleet and update machine status, offline reason, repair
-              reason, hours down and spares ETA.
-            </p>
-          </div>
-
-          <div className="countBadge">{filteredMachines.length}</div>
-        </div>
-
-        <div className="cards">
-          {loading ? (
-            <div className="emptyCard">Loading machines from Supabase...</div>
-          ) : filteredMachines.length === 0 ? (
+          {!draft ? (
             <div className="emptyCard">
-              No machines found. Refresh after saving the register from the
-              admin dashboard.
+              {loading ? "Loading register..." : "No machine found."}
             </div>
           ) : (
-            filteredMachines.map((m) => (
-              <article className="machineCard" key={`${m.id ?? m.fleet}-card`}>
-                <div className="cardTop">
-                  <div>
-                    <h3>
-                      {m.fleet} - {m.machine || m.type}
-                    </h3>
-                    <p>
-                      {m.department} · {m.location || "-"}
-                    </p>
-                  </div>
-
-                  <span className={`pill ${statusClass(m.status)}`}>
-                    {m.status}
-                  </span>
+            <div className="machineFace">
+              <div className="machineTitle">
+                <div>
+                  <h3>
+                    {draft.fleet} - {draft.machine || draft.type}
+                  </h3>
+                  <p>
+                    {draft.department} · {draft.location || "-"}
+                  </p>
                 </div>
+                <span className={`pill ${statusClass(draft.status)}`}>
+                  {draft.status}
+                </span>
+              </div>
 
-                <div className="quickActions">
-                  <button
-                    className="btn greenBtn"
-                    onClick={() => bookOnline(m)}
-                    disabled={savingId === (m.id ?? m.fleet)}
+              <div className="quickActions">
+                <button
+                  className="btn greenBtn"
+                  onClick={() => bookOnline(draft)}
+                  disabled={savingId === (draft.id ?? draft.fleet)}
+                >
+                  Book Online
+                </button>
+
+                <button
+                  className="btn redBtn"
+                  onClick={() => bookOffline(draft)}
+                  disabled={savingId === (draft.id ?? draft.fleet)}
+                >
+                  Book Offline
+                </button>
+              </div>
+
+              <div className="formGrid">
+                <label>
+                  Department
+                  <select
+                    value={draft.department}
+                    onChange={(e) => updateDraft({ department: e.target.value })}
                   >
-                    Book Online
-                  </button>
+                    {departments.map((d) => (
+                      <option key={d}>{d}</option>
+                    ))}
+                  </select>
+                </label>
 
-                  <button
-                    className="btn redBtn"
-                    onClick={() => bookOffline(m)}
-                    disabled={savingId === (m.id ?? m.fleet)}
+                <label>
+                  Status
+                  <select
+                    value={draft.status}
+                    onChange={(e) =>
+                      updateDraft({
+                        status: e.target.value,
+                        online_status:
+                          e.target.value === "Available" ? "Online" : "Offline",
+                        availability: e.target.value === "Available" ? 100 : 0,
+                        major_repair: e.target.value === "Major Repair",
+                      })
+                    }
                   >
-                    Book Offline
-                  </button>
-                </div>
+                    {statuses.map((s) => (
+                      <option key={s}>{s}</option>
+                    ))}
+                  </select>
+                </label>
 
-                <div className="formGrid">
-                  <label>
-                    Department
-                    <select
-                      value={m.department}
-                      onChange={(e) =>
-                        updateMachine(m, { department: e.target.value })
-                      }
-                    >
-                      {departments.map((d) => (
-                        <option key={d}>{d}</option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <label>
-                    Status
-                    <select
-                      value={m.status}
-                      onChange={(e) =>
-                        updateMachine(m, {
-                          status: e.target.value,
-                          online_status:
-                            e.target.value === "Available"
-                              ? "Online"
-                              : "Offline",
-                          availability:
-                            e.target.value === "Available" ? 100 : 0,
-                          major_repair:
-                            e.target.value === "Major Repair",
-                        })
-                      }
-                    >
-                      {statuses.map((s) => (
-                        <option key={s}>{s}</option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <label>
-                    Online / Offline
-                    <select
-                      value={m.online_status || "Online"}
-                      onChange={(e) =>
-                        updateMachine(m, {
-                          online_status: e.target.value,
-                        })
-                      }
-                    >
-                      <option>Online</option>
-                      <option>Offline</option>
-                    </select>
-                  </label>
-
-                  <label>
-                    Availability %
-                    <input
-                      value={m.availability ?? ""}
-                      onChange={(e) =>
-                        updateMachine(m, { availability: e.target.value })
-                      }
-                    />
-                  </label>
-
-                  <label>
-                    Hours Worked
-                    <input
-                      value={m.hours_worked ?? ""}
-                      onChange={(e) =>
-                        updateMachine(m, { hours_worked: e.target.value })
-                      }
-                    />
-                  </label>
-
-                  <label>
-                    Hours Down
-                    <input
-                      value={m.hours_down ?? ""}
-                      onChange={(e) =>
-                        updateMachine(m, { hours_down: e.target.value })
-                      }
-                    />
-                  </label>
-
-                  <label>
-                    Downtime Reason
-                    <input
-                      value={m.downtime_reason ?? ""}
-                      onChange={(e) =>
-                        updateMachine(m, {
-                          downtime_reason: e.target.value,
-                        })
-                      }
-                    />
-                  </label>
-
-                  <label>
-                    Repair Reason / Work Required
-                    <input
-                      value={m.repair_reason ?? ""}
-                      onChange={(e) =>
-                        updateMachine(m, {
-                          repair_reason: e.target.value,
-                        })
-                      }
-                    />
-                  </label>
-
-                  <label>
-                    ETA / Spares
-                    <input
-                      value={m.spares_eta ?? ""}
-                      onChange={(e) =>
-                        updateMachine(m, { spares_eta: e.target.value })
-                      }
-                    />
-                  </label>
-
-                  <label>
-                    Location
-                    <input
-                      value={m.location ?? ""}
-                      onChange={(e) =>
-                        updateMachine(m, { location: e.target.value })
-                      }
-                    />
-                  </label>
-                </div>
-
-                <div className="cardFooter">
-                  <span>
-                    Updated:{" "}
-                    {m.updated_at
-                      ? new Date(m.updated_at).toLocaleString()
-                      : "-"}{" "}
-                    · User: {m.updated_by || "Foreman"}
-                  </span>
-
-                  <button
-                    className="btn light"
-                    onClick={() => loadMachines()}
+                <label>
+                  Online / Offline
+                  <select
+                    value={draft.online_status || "Online"}
+                    onChange={(e) =>
+                      updateDraft({ online_status: e.target.value })
+                    }
                   >
-                    Recheck
-                  </button>
-                </div>
-              </article>
-            ))
+                    <option>Online</option>
+                    <option>Offline</option>
+                  </select>
+                </label>
+
+                <label>
+                  Availability %
+                  <input
+                    value={draft.availability ?? ""}
+                    onChange={(e) => updateDraft({ availability: e.target.value })}
+                  />
+                </label>
+
+                <label>
+                  Hours Worked
+                  <input
+                    value={draft.hours_worked ?? ""}
+                    onChange={(e) => updateDraft({ hours_worked: e.target.value })}
+                  />
+                </label>
+
+                <label>
+                  Hours Down
+                  <input
+                    value={draft.hours_down ?? ""}
+                    onChange={(e) => updateDraft({ hours_down: e.target.value })}
+                  />
+                </label>
+
+                <label>
+                  Downtime Reason
+                  <input
+                    value={draft.downtime_reason ?? ""}
+                    onChange={(e) =>
+                      updateDraft({ downtime_reason: e.target.value })
+                    }
+                  />
+                </label>
+
+                <label>
+                  Repair Reason / Work Required
+                  <input
+                    value={draft.repair_reason ?? ""}
+                    onChange={(e) =>
+                      updateDraft({ repair_reason: e.target.value })
+                    }
+                  />
+                </label>
+
+                <label>
+                  ETA / Spares
+                  <input
+                    value={draft.spares_eta ?? ""}
+                    onChange={(e) => updateDraft({ spares_eta: e.target.value })}
+                  />
+                </label>
+
+                <label>
+                  Location
+                  <input
+                    value={draft.location ?? ""}
+                    onChange={(e) => updateDraft({ location: e.target.value })}
+                  />
+                </label>
+              </div>
+
+              <div className="saveRow">
+                <span>
+                  Last refresh: {lastRefresh || "-"}
+                </span>
+
+                <button
+                  className="btn whiteBtn"
+                  onClick={saveDraft}
+                  disabled={savingId === (draft.id ?? draft.fleet)}
+                >
+                  Save Updates
+                </button>
+              </div>
+            </div>
           )}
-        </div>
+        </section>
+
+        <section className="breakdownPanel">
+          <div className="panelHeader">
+            <div>
+              <h2>Machines on Breakdown / Offline</h2>
+              <p>Live list only. No full fleet cards shown here.</p>
+            </div>
+            <div className="countBadge">{offlineMachines.length}</div>
+          </div>
+
+          <div className="tableWrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Fleet</th>
+                  <th>Type</th>
+                  <th>Dept</th>
+                  <th>Status</th>
+                  <th>Online</th>
+                  <th>Hours</th>
+                  <th>Downtime Reason</th>
+                  <th>Repair Reason</th>
+                  <th>ETA</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {loading ? (
+                  <tr>
+                    <td colSpan={9} className="empty">
+                      Loading Supabase register...
+                    </td>
+                  </tr>
+                ) : offlineMachines.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="empty">
+                      No machines booked offline.
+                    </td>
+                  </tr>
+                ) : (
+                  offlineMachines.map((m) => (
+                    <tr key={`${m.id ?? m.fleet}-offline`}>
+                      <td>
+                        <button
+                          className="fleetBtn"
+                          onClick={() => {
+                            setSearch(m.fleet);
+                            selectMachine(machineKey(m));
+                          }}
+                        >
+                          {m.fleet}
+                        </button>
+                      </td>
+                      <td>{m.type}</td>
+                      <td>{m.department}</td>
+                      <td>
+                        <span className={`pill ${statusClass(m.status)}`}>
+                          {m.status}
+                        </span>
+                      </td>
+                      <td>{m.online_status || "-"}</td>
+                      <td>{num(m.hours_down).toFixed(1)}</td>
+                      <td>{m.downtime_reason || "-"}</td>
+                      <td>{m.repair_reason || "-"}</td>
+                      <td>{m.spares_eta || "-"}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
       </section>
 
-      <style jsx>{`
-        * {
-          box-sizing: border-box;
-        }
-
-        .page {
-          min-height: 100vh;
-          background: #dfe3e8;
-          padding: 28px;
-          font-family: Arial, Helvetica, sans-serif;
-          color: #ffffff;
-        }
-
-        .hero,
-        .notice,
-        .stats,
-        .toolbar,
-        .panel {
-          max-width: 1480px;
-          margin: 0 auto 18px auto;
-        }
-
-        .hero {
-          background: #020817;
-          border-radius: 18px;
-          padding: 28px;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 20px;
-          box-shadow: 0 16px 40px rgba(15, 23, 42, 0.18);
-        }
-
-        .eyebrow {
-          letter-spacing: 6px;
-          font-size: 12px;
-          font-weight: 900;
-          margin: 0 0 8px;
-        }
-
-        h1 {
-          font-size: 38px;
-          line-height: 1;
-          margin: 0 0 10px;
-        }
-
-        .hero p {
-          margin: 0;
-          color: #dbeafe;
-          font-size: 15px;
-        }
-
-        .btn {
-          border: 0;
-          border-radius: 12px;
-          padding: 12px 18px;
-          font-weight: 900;
-          cursor: pointer;
-          white-space: nowrap;
-        }
-
-        .btn:disabled {
-          opacity: 0.6;
-          cursor: not-allowed;
-        }
-
-        .light {
-          background: #ffffff;
-          color: #020817;
-        }
-
-        .greenBtn {
-          background: #14532d;
-          color: white;
-        }
-
-        .redBtn {
-          background: #7f1d1d;
-          color: white;
-        }
-
-        .notice {
-          background: #111827;
-          border-left: 6px solid #f97316;
-          color: #ffffff;
-          padding: 15px 18px;
-          border-radius: 12px;
-          font-weight: 800;
-        }
-
-        .stats {
-          display: grid;
-          grid-template-columns: repeat(4, minmax(0, 1fr));
-          gap: 14px;
-        }
-
-        .stat {
-          background: #ffffff;
-          color: #020817;
-          border-radius: 16px;
-          padding: 18px;
-          box-shadow: 0 10px 26px rgba(15, 23, 42, 0.12);
-        }
-
-        .stat span {
-          text-transform: uppercase;
-          color: #475569;
-          font-size: 12px;
-          font-weight: 900;
-          letter-spacing: 0.8px;
-        }
-
-        .stat strong {
-          display: block;
-          font-size: 34px;
-          margin-top: 8px;
-        }
-
-        .green {
-          color: #15803d;
-        }
-
-        .red {
-          color: #dc2626;
-        }
-
-        .orange {
-          color: #ea580c;
-        }
-
-        .toolbar {
-          background: #ffffff;
-          color: #020817;
-          border-radius: 16px;
-          padding: 16px;
-          box-shadow: 0 10px 26px rgba(15, 23, 42, 0.12);
-        }
-
-        .toolbar input {
-          width: 100%;
-          max-width: 760px;
-          border: 1px solid #cbd5e1;
-          border-radius: 12px;
-          padding: 13px;
-          font-size: 14px;
-        }
-
-        .toolbar p {
-          color: #475569;
-          margin: 10px 0 0;
-          font-size: 13px;
-        }
-
-        .panel {
-          background: #18345d;
-          border: 1px solid rgba(255, 255, 255, 0.12);
-          border-radius: 20px;
-          padding: 22px;
-          box-shadow: 0 16px 40px rgba(15, 23, 42, 0.25);
-        }
-
-        .panelHeader {
-          display: flex;
-          justify-content: space-between;
-          gap: 15px;
-          align-items: center;
-          margin-bottom: 18px;
-        }
-
-        .panelHeader h2 {
-          margin: 0 0 8px;
-          font-size: 22px;
-        }
-
-        .panelHeader p {
-          margin: 0;
-          color: #dbeafe;
-          font-size: 14px;
-        }
-
-        .countBadge {
-          background: #374151;
-          color: #fbbf24;
-          font-size: 22px;
-          font-weight: 900;
-          min-width: 52px;
-          height: 52px;
-          border-radius: 50%;
-          display: grid;
-          place-items: center;
-        }
-
-        .tableWrap {
-          overflow-x: auto;
-          border-radius: 14px;
-        }
-
-        table {
-          width: 100%;
-          border-collapse: collapse;
-          background: #1e3a66;
-          min-width: 980px;
-        }
-
-        th {
-          background: #f8fafc;
-          color: #0f172a;
-          text-align: left;
-          font-size: 13px;
-          padding: 15px;
-        }
-
-        td {
-          border-top: 1px solid rgba(255, 255, 255, 0.08);
-          padding: 15px;
-          color: #ffffff;
-          font-size: 14px;
-          vertical-align: top;
-        }
-
-        .empty {
-          text-align: center;
-          color: #cbd5e1;
-          padding: 28px;
-        }
-
-        .pill {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          border-radius: 999px;
-          padding: 7px 15px;
-          min-width: 96px;
-          font-size: 12px;
-          font-weight: 900;
-        }
-
-        .good {
-          background: #0f766e;
-          color: #bbf7d0;
-        }
-
-        .down {
-          background: #4c1d95;
-          color: #fb7185;
-        }
-
-        .repair,
-        .maintenance {
-          background: #4b5563;
-          color: #fde047;
-        }
-
-        .major {
-          background: #713f12;
-          color: #fde68a;
-        }
-
-        .neutral {
-          background: #334155;
-          color: #e2e8f0;
-        }
-
-        .cards {
-          display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 16px;
-        }
-
-        .machineCard {
-          background: #1b3761;
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          border-radius: 18px;
-          padding: 16px;
-        }
-
-        .cardTop {
-          display: flex;
-          align-items: flex-start;
-          justify-content: space-between;
-          gap: 10px;
-          margin-bottom: 14px;
-        }
-
-        .cardTop h3 {
-          margin: 0 0 6px;
-          font-size: 18px;
-        }
-
-        .cardTop p {
-          margin: 0;
-          color: #dbeafe;
-          font-size: 13px;
-        }
-
-        .quickActions {
-          display: flex;
-          gap: 10px;
-          margin-bottom: 14px;
-        }
-
-        .formGrid {
-          display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 12px;
-        }
-
-        label {
-          display: flex;
-          flex-direction: column;
-          gap: 6px;
-          color: #ffffff;
-          font-size: 12px;
-          font-weight: 900;
-        }
-
-        input,
-        select {
-          width: 100%;
-          border: 0;
-          border-radius: 12px;
-          padding: 12px;
-          font-size: 14px;
-          color: #020817;
-          background: #ffffff;
-        }
-
-        .cardFooter {
-          margin-top: 14px;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 12px;
-          color: #cbd5e1;
-          font-size: 12px;
-        }
-
-        .emptyCard {
-          grid-column: 1 / -1;
-          background: rgba(255, 255, 255, 0.08);
-          border-radius: 14px;
-          padding: 25px;
-          text-align: center;
-          color: #dbeafe;
-          font-weight: 800;
-        }
-
-        @media (max-width: 900px) {
-          .page {
-            padding: 14px;
-          }
-
-          .hero {
-            flex-direction: column;
-            align-items: stretch;
-            padding: 22px;
-          }
-
-          h1 {
-            font-size: 30px;
-          }
-
-          .stats {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-          }
-
-          .cards {
-            grid-template-columns: 1fr;
-          }
-
-          .formGrid {
-            grid-template-columns: 1fr;
-          }
-
-          .quickActions {
-            flex-direction: column;
-          }
-
-          .cardFooter {
-            flex-direction: column;
-            align-items: stretch;
-          }
-
-          .panelHeader {
-            align-items: flex-start;
-          }
-        }
-
-        @media (max-width: 520px) {
-          .stats {
-            grid-template-columns: 1fr;
-          }
-
-          h1 {
-            font-size: 26px;
-          }
-
-          .panel {
-            padding: 15px;
-          }
-
-          .pill {
-            min-width: auto;
-          }
-        }
-      `}</style>
+      <style jsx>{pageStyles}</style>
     </main>
   );
 }
+
+const pageStyles = `
+  * {
+    box-sizing: border-box;
+  }
+
+  .page {
+    min-height: 100vh;
+    background:
+      radial-gradient(circle at top left, rgba(30, 64, 175, 0.45), transparent 35%),
+      linear-gradient(135deg, #020817 0%, #071a33 45%, #0f2a4d 100%);
+    padding: 22px;
+    font-family: Arial, Helvetica, sans-serif;
+    color: #ffffff;
+  }
+
+  .hero,
+  .notice,
+  .stats,
+  .workArea {
+    max-width: 1560px;
+    margin: 0 auto 16px auto;
+  }
+
+  .hero {
+    background: #020817;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 18px;
+    padding: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.32);
+  }
+
+  .eyebrow {
+    letter-spacing: 6px;
+    font-size: 12px;
+    font-weight: 900;
+    margin: 0 0 8px;
+    color: #bfdbfe;
+  }
+
+  h1 {
+    font-size: 36px;
+    line-height: 1;
+    margin: 0 0 10px;
+  }
+
+  .hero p,
+  .panelHeader p {
+    margin: 0;
+    color: #dbeafe;
+    font-size: 14px;
+  }
+
+  .heroActions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .btn {
+    border: 0;
+    border-radius: 12px;
+    padding: 12px 18px;
+    font-weight: 900;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  .whiteBtn {
+    background: #ffffff;
+    color: #020817;
+  }
+
+  .outlineBtn {
+    background: transparent;
+    color: #ffffff;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+  }
+
+  .greenBtn {
+    background: #065f46;
+    color: #ffffff;
+  }
+
+  .redBtn {
+    background: #991b1b;
+    color: #ffffff;
+  }
+
+  .notice {
+    background: #0b1224;
+    border-left: 6px solid #f97316;
+    color: #ffffff;
+    padding: 14px 18px;
+    border-radius: 12px;
+    font-weight: 800;
+  }
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .stat {
+    background: #ffffff;
+    color: #020817;
+    border-radius: 16px;
+    padding: 16px;
+    box-shadow: 0 14px 30px rgba(0, 0, 0, 0.22);
+  }
+
+  .stat span {
+    text-transform: uppercase;
+    color: #475569;
+    font-size: 12px;
+    font-weight: 900;
+    letter-spacing: 0.8px;
+  }
+
+  .stat strong {
+    display: block;
+    font-size: 32px;
+    margin-top: 6px;
+  }
+
+  .greenText {
+    color: #047857;
+  }
+
+  .redText {
+    color: #dc2626;
+  }
+
+  .orangeText {
+    color: #ea580c;
+  }
+
+  .workArea {
+    display: grid;
+    grid-template-columns: 500px minmax(0, 1fr);
+    gap: 16px;
+    align-items: start;
+  }
+
+  .controlPanel,
+  .breakdownPanel {
+    background: #123763;
+    border: 1px solid rgba(191, 219, 254, 0.22);
+    border-radius: 20px;
+    padding: 20px;
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28);
+  }
+
+  .controlPanel {
+    position: sticky;
+    top: 18px;
+  }
+
+  .panelHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .panelHeader h2 {
+    margin: 0 0 6px;
+    font-size: 22px;
+  }
+
+  label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 900;
+    margin-bottom: 12px;
+  }
+
+  input,
+  select {
+    width: 100%;
+    border: 0;
+    border-radius: 12px;
+    padding: 12px;
+    font-size: 14px;
+    color: #020817;
+    background: #ffffff;
+    outline: none;
+  }
+
+  input:focus,
+  select:focus {
+    box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.4);
+  }
+
+  .machineFace {
+    margin-top: 14px;
+    background: #1e4677;
+    border: 1px solid rgba(191, 219, 254, 0.18);
+    border-radius: 18px;
+    padding: 16px;
+  }
+
+  .machineTitle {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+
+  .machineTitle h3 {
+    margin: 0 0 6px;
+    font-size: 20px;
+  }
+
+  .machineTitle p {
+    margin: 0;
+    color: #dbeafe;
+    font-size: 13px;
+  }
+
+  .quickActions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+
+  .formGrid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .saveRow {
+    margin-top: 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    color: #dbeafe;
+    font-size: 12px;
+  }
+
+  .countBadge {
+    background: #334155;
+    color: #fbbf24;
+    font-size: 22px;
+    font-weight: 900;
+    min-width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+  }
+
+  .tableWrap {
+    overflow: auto;
+    border-radius: 14px;
+    max-height: calc(100vh - 270px);
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: #1e3f70;
+    min-width: 980px;
+  }
+
+  th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: #ffffff;
+    color: #020817;
+    text-align: left;
+    font-size: 12px;
+    padding: 14px;
+  }
+
+  td {
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 14px;
+    color: #ffffff;
+    font-size: 13px;
+    vertical-align: top;
+  }
+
+  .fleetBtn {
+    background: transparent;
+    color: #ffffff;
+    border: 0;
+    font-weight: 900;
+    text-decoration: underline;
+    cursor: pointer;
+    padding: 0;
+  }
+
+  .empty,
+  .emptyCard {
+    text-align: center;
+    color: #dbeafe;
+    padding: 24px;
+    font-weight: 800;
+  }
+
+  .emptyCard {
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+  }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    padding: 7px 14px;
+    min-width: 90px;
+    font-size: 12px;
+    font-weight: 900;
+  }
+
+  .good {
+    background: #0f766e;
+    color: #bbf7d0;
+  }
+
+  .down {
+    background: #581c87;
+    color: #fb7185;
+  }
+
+  .repair,
+  .maintenance {
+    background: #475569;
+    color: #fde047;
+  }
+
+  .major {
+    background: #92400e;
+    color: #fde68a;
+  }
+
+  .neutral {
+    background: #334155;
+    color: #e2e8f0;
+  }
+
+  .loginPage {
+    display: grid;
+    place-items: center;
+  }
+
+  .loginBox {
+    width: min(440px, 100%);
+    background: #020817;
+    border: 1px solid rgba(191, 219, 254, 0.2);
+    border-radius: 22px;
+    padding: 28px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+  }
+
+  .loginBox h1 {
+    font-size: 30px;
+  }
+
+  .loginText {
+    color: #dbeafe;
+    margin: 0 0 18px;
+  }
+
+  .loginError {
+    background: #7f1d1d;
+    color: #ffffff;
+    padding: 12px;
+    border-radius: 12px;
+    font-weight: 800;
+    margin-bottom: 12px;
+  }
+
+  @media (max-width: 1100px) {
+    .workArea {
+      grid-template-columns: 1fr;
+    }
+
+    .controlPanel {
+      position: static;
+    }
+
+    .tableWrap {
+      max-height: none;
+    }
+  }
+
+  @media (max-width: 760px) {
+    .page {
+      padding: 12px;
+    }
+
+    .hero {
+      flex-direction: column;
+      align-items: stretch;
+      padding: 20px;
+    }
+
+    h1 {
+      font-size: 28px;
+    }
+
+    .stats {
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .formGrid {
+      grid-template-columns: 1fr;
+    }
+
+    .quickActions {
+      grid-template-columns: 1fr;
+    }
+
+    .saveRow {
+      flex-direction: column;
+      align-items: stretch;
+    }
+  }
+
+  @media (max-width: 460px) {
+    .stats {
+      grid-template-columns: 1fr;
+    }
+  }
+`;
