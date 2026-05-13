@@ -5,157 +5,67 @@ import { createClient } from "@supabase/supabase-js";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+const supabase = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
 type Machine = {
   id?: string | number;
   fleet: string;
   type: string;
   machine?: string;
+  machineType?: string;
   machine_type?: string;
   status: string;
   department: string;
   location?: string;
   availability?: number | string;
   hours_worked?: number | string;
+  hoursWorked?: number | string;
   hours_down?: number | string;
+  hoursDown?: number | string;
   downtime_reason?: string;
+  downtimeReason?: string;
   repair_reason?: string;
+  repairReason?: string;
   spares_eta?: string;
+  sparesEta?: string;
   online_status?: string;
+  onlineStatus?: string;
   major_repair?: boolean;
+  majorRepair?: boolean;
+  updated?: string;
   updated_at?: string;
   updated_by?: string;
-  __fleet_column?: string;
-  __fleet_value?: string;
+  __raw?: any;
   [key: string]: any;
 };
 
-/*
-  IMPORTANT FIX:
-  This foreman/control screen must only read from the main availability register.
-  Do not add machine_register, machines, or fleet_machines here, because those
-  tables can belong to the other workshop apps and will pull the wrong fleet list.
-*/
-const MAIN_REGISTER_TABLES = [
-  "machine_availability",
-  "machine_availability_register",
-  "availability_register",
+type DataSource =
+  | { kind: "localStorage"; key: string; path: (string | number)[]; label: string }
+  | { kind: "supabase"; table: string; label: string }
+  | null;
+
+const DASHBOARD_PRIMARY_KEY = "turboMachineData";
+
+const EXACT_LOCAL_KEYS = [
+  "turboMachineData",
+  "turbo_machine_data",
+  "turboMachineAvailabilityData",
+  "turboEnergyMachineAvailability",
+  "machineAvailabilityData",
+  "machineRegister",
+  "availabilityRegister",
+  "machines",
 ];
 
-const FIELD_ALIASES: Record<string, string[]> = {
-  fleet: [
-    "fleet",
-    "fleet_no",
-    "fleet no",
-    "fleet_number",
-    "fleet number",
-    "unit",
-    "unit_no",
-    "unit no",
-    "unit_number",
-    "unit number",
-    "machine_number",
-    "machine number",
-    "machine_no",
-    "machine no",
-    "asset",
-    "asset_no",
-    "asset no",
-    "asset_number",
-    "asset number",
-    "registration",
-    "reg",
-    "reg_no",
-    "reg no",
-    "reg_number",
-    "reg number",
-  ],
-  type: [
-    "type",
-    "machine_type",
-    "machine type",
-    "machineType",
-    "category",
-    "class",
-    "group",
-    "machine",
-  ],
-  machine: ["machine", "machine_name", "machine name", "name", "description"],
-  status: ["status", "machine_status", "machine status", "condition"],
-  department: ["department", "dept", "section"],
-  location: ["location", "site", "area"],
-  availability: [
-    "availability",
-    "availability_%",
-    "availability %",
-    "availability_percent",
-    "availability percent",
-    "availability_percentage",
-    "availability percentage",
-    "available_%",
-    "available %",
-  ],
-  hours_worked: [
-    "hours_worked",
-    "hours worked",
-    "hoursWorked",
-    "worked_hours",
-    "worked hours",
-    "running_hours",
-    "running hours",
-  ],
-  hours_down: [
-    "hours_down",
-    "hours down",
-    "hoursDown",
-    "downtime_hours",
-    "downtime hours",
-    "down_hours",
-    "down hours",
-  ],
-  downtime_reason: [
-    "downtime_reason",
-    "downtime reason",
-    "downtimeReason",
-    "reason",
-    "breakdown_reason",
-    "breakdown reason",
-    "down_reason",
-    "down reason",
-    "fault",
-  ],
-  repair_reason: [
-    "repair_reason",
-    "repair reason",
-    "repairReason",
-    "work_required",
-    "work required",
-    "repairs_required",
-    "repairs required",
-  ],
-  spares_eta: [
-    "spares_eta",
-    "spares eta",
-    "sparesEta",
-    "eta",
-    "eta_spares",
-    "eta spares",
-    "spares",
-  ],
-  online_status: [
-    "online_status",
-    "online status",
-    "onlineStatus",
-    "online_offline",
-    "online offline",
-    "online/offline",
-    "online",
-  ],
-  major_repair: ["major_repair", "major repair", "majorRepair"],
-  updated_at: ["updated_at", "updated at", "updatedAt", "updated"],
-  updated_by: ["updated_by", "updated by", "updatedBy"],
-};
+const SUPABASE_TABLE_CANDIDATES = [
+  "machine_availability_register",
+  "availability_register",
+  "machine_availability",
+  "turbo_machine_availability",
+  "turbo_availability_register",
+  "main_machine_availability",
+  "machine_register",
+];
 
 const departments = [
   "Mining",
@@ -183,92 +93,60 @@ const quickReasons = [
   "Service",
   "Service 500 hr",
   "Tyre replacement",
+  "No power",
   "Hydraulic leak",
   "Electrical fault",
   "Engine fault",
   "Transmission fault",
   "Brake fault",
-  "Accident damage",
   "Reverse alarm",
+  "Accident",
   "Awaiting spares",
 ];
 
 function clean(value: any) {
-  return String(value ?? "").replace(/\u00a0/g, " ").trim();
+  return String(value ?? "").trim();
 }
 
-function normalizedColumn(value: string) {
-  return clean(value).toLowerCase().replace(/[^a-z0-9]/g, "");
-}
-
-function titleCase(value: string) {
-  return clean(value)
-    .toLowerCase()
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+function lower(value: any) {
+  return clean(value).toLowerCase();
 }
 
 function num(value: any) {
-  const n = Number(String(value ?? "").replace(/,/g, ""));
+  const n = Number(value);
   return Number.isFinite(n) ? n : 0;
 }
 
-function boolish(value: any) {
-  if (value === true) return true;
-  if (value === false || value === null || value === undefined) return false;
-
-  const text = clean(value).toLowerCase();
-  return ["true", "yes", "y", "1", "major", "major repair"].includes(text);
+function bool(value: any) {
+  if (typeof value === "boolean") return value;
+  const v = lower(value);
+  return ["true", "yes", "y", "1", "major repair", "major"].includes(v);
 }
 
-function pickField(row: any, aliases: string[]) {
-  const keyMap: Record<string, string> = {};
-
-  Object.keys(row || {}).forEach((key) => {
-    keyMap[normalizedColumn(key)] = key;
-  });
-
-  for (const alias of aliases) {
-    const actualKey = keyMap[normalizedColumn(alias)];
-    if (actualKey !== undefined) {
-      return { key: actualKey, value: row[actualKey] };
-    }
-  }
-
-  return { key: "", value: "" };
-}
-
-function findColumn(columns: string[], aliases: string[]) {
-  const keyMap: Record<string, string> = {};
-
-  columns.forEach((key) => {
-    keyMap[normalizedColumn(key)] = key;
-  });
-
-  for (const alias of aliases) {
-    const actualKey = keyMap[normalizedColumn(alias)];
-    if (actualKey !== undefined) return actualKey;
-  }
-
-  return "";
-}
-
-function canonicalFleet(value: any) {
-  return clean(value).toUpperCase().replace(/\s+/g, " ");
+function fleetKey(value: any) {
+  return clean(value).toUpperCase().replace(/\s+/g, "");
 }
 
 function machineKey(machine: Machine) {
-  return canonicalFleet(machine.fleet);
+  return fleetKey(machine.fleet || machine.id);
 }
 
-function isBadFleet(value: any) {
-  const fleet = canonicalFleet(value);
-  const basic = fleet.toLowerCase();
+function typeFromFleet(fleet: string) {
+  const letters = clean(fleet).match(/^[A-Za-z]+/);
+  const prefix = letters ? letters[0].toUpperCase() : "MACHINE";
 
-  if (!fleet) return true;
-  if (fleet.length > 35) return true;
-  if (!/[a-z0-9]/i.test(fleet)) return true;
+  if (["AFE", "AFN", "AFR", "AFX", "AFC", "AEX", "AFK", "ABH", "AEK", "AGA", "AGE", "AGP", "AGQ", "AHH"].includes(prefix)) {
+    return "LDV";
+  }
 
-  const badHeaders = new Set([
+  return prefix || "MACHINE";
+}
+
+function isHeaderOrBadFleet(fleet: string) {
+  const f = lower(fleet);
+  if (!f) return true;
+
+  const bad = [
     "fleet",
     "fleet no",
     "fleet number",
@@ -277,221 +155,368 @@ function isBadFleet(value: any) {
     "machine number",
     "unit",
     "unit no",
-    "unit number",
     "registration",
-    "reg",
-    "reg no",
-    "status",
-    "type",
-    "department",
-    "location",
+    "reg number",
     "total",
-    "grand total",
-    "undefined",
-    "null",
-  ]);
+    "totals",
+  ];
 
-  return badHeaders.has(basic);
+  if (bad.includes(f)) return true;
+  if (f.includes("fleet") && f.includes("number")) return true;
+  if (f.includes("machine") && f.includes("number")) return true;
+  if (f.length > 40) return true;
+
+  return false;
 }
 
-function inferTypeFromFleet(fleet: string) {
-  const match = canonicalFleet(fleet).match(/^[A-Z]+/);
-  return match ? match[0] : "Machine";
+function normalStatus(row: any, rawStatus: string) {
+  const statusText = lower(rawStatus);
+  const major = bool(row.majorRepair) || bool(row.major_repair) || statusText.includes("major");
+
+  if (major) return "Major Repair";
+  if (statusText.includes("avail") || statusText === "online") return "Available";
+  if (statusText.includes("stand")) return "Standby";
+  if (statusText.includes("maint") || statusText.includes("service")) return "Maintenance";
+  if (statusText.includes("repair")) return "Repair";
+  if (statusText.includes("down") || statusText.includes("offline")) return "Down";
+
+  return clean(rawStatus) || "Available";
 }
 
-function normalizeStatus(rawStatus: any, rawOnline: any) {
-  const status = clean(rawStatus).toLowerCase();
-  const online = clean(rawOnline).toLowerCase();
+function normalize(row: any): Machine {
+  const fleet =
+    clean(row.fleet) ||
+    clean(row.fleetNumber) ||
+    clean(row.fleet_number) ||
+    clean(row.fleet_no) ||
+    clean(row.unit) ||
+    clean(row.unitNumber) ||
+    clean(row.machine_number) ||
+    clean(row.machineNo) ||
+    clean(row.registration) ||
+    clean(row.regNumber);
 
-  if (status.includes("major")) return "Major Repair";
-  if (status.includes("maint")) return "Maintenance";
-  if (status.includes("repair")) return "Repair";
-  if (status.includes("break") || status.includes("down")) return "Down";
-  if (status.includes("stand")) return "Standby";
-  if (status.includes("avail") || status.includes("online")) return "Available";
-  if (status.includes("offline")) return "Down";
-  if (!status && online.includes("offline")) return "Down";
-  if (!status) return "Available";
+  const type =
+    clean(row.type) ||
+    clean(row.machineTypeGroup) ||
+    clean(row.machine_type_group) ||
+    typeFromFleet(fleet);
 
-  return titleCase(status);
-}
+  const machineType =
+    clean(row.machineType) ||
+    clean(row.machine_type) ||
+    clean(row.machine) ||
+    clean(row.model) ||
+    clean(row.description) ||
+    type;
 
-function normalizeOnline(rawOnline: any, status: string) {
-  const online = clean(rawOnline).toLowerCase();
+  const rawStatus =
+    clean(row.status) ||
+    clean(row.machineStatus) ||
+    clean(row.machine_status) ||
+    clean(row.condition) ||
+    (bool(row.majorRepair) || bool(row.major_repair) ? "Major Repair" : "Available");
 
-  if (online.includes("offline")) return "Offline";
-  if (online.includes("online")) return "Online";
+  const status = normalStatus(row, rawStatus);
+  const major = bool(row.majorRepair) || bool(row.major_repair) || status === "Major Repair";
 
-  return status === "Available" ? "Online" : "Offline";
-}
-
-function normalizeRow(row: any): Machine {
-  const fleetField = pickField(row, FIELD_ALIASES.fleet);
-  const typeField = pickField(row, FIELD_ALIASES.type);
-  const machineField = pickField(row, FIELD_ALIASES.machine);
-  const statusField = pickField(row, FIELD_ALIASES.status);
-  const departmentField = pickField(row, FIELD_ALIASES.department);
-  const locationField = pickField(row, FIELD_ALIASES.location);
-  const availabilityField = pickField(row, FIELD_ALIASES.availability);
-  const hoursWorkedField = pickField(row, FIELD_ALIASES.hours_worked);
-  const hoursDownField = pickField(row, FIELD_ALIASES.hours_down);
-  const downtimeReasonField = pickField(row, FIELD_ALIASES.downtime_reason);
-  const repairReasonField = pickField(row, FIELD_ALIASES.repair_reason);
-  const sparesEtaField = pickField(row, FIELD_ALIASES.spares_eta);
-  const onlineField = pickField(row, FIELD_ALIASES.online_status);
-  const majorRepairField = pickField(row, FIELD_ALIASES.major_repair);
-  const updatedAtField = pickField(row, FIELD_ALIASES.updated_at);
-  const updatedByField = pickField(row, FIELD_ALIASES.updated_by);
-
-  const fleet = canonicalFleet(fleetField.value);
-  const rawStatus = statusField.value;
-  const status = normalizeStatus(rawStatus, onlineField.value);
-  const onlineStatus = normalizeOnline(onlineField.value, status);
-  const type = clean(typeField.value) || inferTypeFromFleet(fleet);
+  const onlineStatus =
+    clean(row.onlineStatus) ||
+    clean(row.online_status) ||
+    clean(row.online_offline) ||
+    (status === "Available" ? "Online" : "Offline");
 
   return {
     ...row,
+    __raw: row,
     id: row.id,
     fleet,
     type,
-    machine: clean(machineField.value) || type,
-    machine_type: type,
+    machine: machineType,
+    machineType,
+    machine_type: machineType,
     status,
-    department: clean(departmentField.value) || "Workshop",
-    location: clean(locationField.value) || "Hwange",
+    department: clean(row.department) || clean(row.dept) || "Workshop",
+    location: clean(row.location) || clean(row.site) || "Hwange",
     availability:
-      availabilityField.value !== "" && availabilityField.value !== null
-        ? availabilityField.value
-        : status === "Available"
-        ? 100
-        : 0,
+      row.availability ??
+      row.availabilityPercent ??
+      row.availability_percent ??
+      row.availability_percentage ??
+      (status === "Available" ? 100 : 0),
     hours_worked:
-      hoursWorkedField.value !== "" && hoursWorkedField.value !== null
-        ? hoursWorkedField.value
-        : "",
+      row.hours_worked ??
+      row.hoursWorked ??
+      row.worked_hours ??
+      row.hours ??
+      "",
+    hoursWorked:
+      row.hoursWorked ??
+      row.hours_worked ??
+      row.worked_hours ??
+      row.hours ??
+      "",
     hours_down:
-      hoursDownField.value !== "" && hoursDownField.value !== null
-        ? hoursDownField.value
-        : 0,
-    downtime_reason: clean(downtimeReasonField.value),
-    repair_reason: clean(repairReasonField.value),
-    spares_eta: clean(sparesEtaField.value),
+      row.hours_down ??
+      row.hoursDown ??
+      row.downtime_hours ??
+      row.downHours ??
+      0,
+    hoursDown:
+      row.hoursDown ??
+      row.hours_down ??
+      row.downtime_hours ??
+      row.downHours ??
+      0,
+    downtime_reason:
+      clean(row.downtime_reason) ||
+      clean(row.downtimeReason) ||
+      clean(row.breakdown_reason) ||
+      clean(row.reason),
+    downtimeReason:
+      clean(row.downtimeReason) ||
+      clean(row.downtime_reason) ||
+      clean(row.breakdown_reason) ||
+      clean(row.reason),
+    repair_reason:
+      clean(row.repair_reason) ||
+      clean(row.repairReason) ||
+      clean(row.work_required),
+    repairReason:
+      clean(row.repairReason) ||
+      clean(row.repair_reason) ||
+      clean(row.work_required),
+    spares_eta:
+      clean(row.spares_eta) ||
+      clean(row.sparesEta) ||
+      clean(row.eta),
+    sparesEta:
+      clean(row.sparesEta) ||
+      clean(row.spares_eta) ||
+      clean(row.eta),
     online_status: onlineStatus,
-    major_repair: boolish(majorRepairField.value) || status === "Major Repair",
-    updated_at: clean(updatedAtField.value),
-    updated_by: clean(updatedByField.value) || "Control",
-    __fleet_column: fleetField.key || "fleet",
-    __fleet_value: clean(fleetField.value),
+    onlineStatus,
+    major_repair: major,
+    majorRepair: major,
+    updated: clean(row.updated) || clean(row.updated_at) || new Date().toLocaleString(),
+    updated_at: clean(row.updated_at) || clean(row.updated) || new Date().toISOString(),
+    updated_by: clean(row.updated_by) || "Control",
   };
 }
 
-function prepareMachines(rows: any[]) {
-  const byFleet = new Map<string, { machine: Machine; index: number }>();
+function isValidMachine(row: any) {
+  const m = normalize(row);
+  if (isHeaderOrBadFleet(m.fleet)) return false;
 
-  rows
-    .map(normalizeRow)
-    .filter((machine) => !isBadFleet(machine.fleet))
-    .forEach((machine, index) => {
-      const key = machineKey(machine);
-      const previous = byFleet.get(key);
+  const searchable = [m.fleet, m.type, m.machineType, m.status, m.department, m.location].join(" ");
+  if (!/[A-Za-z0-9]/.test(searchable)) return false;
 
-      if (!previous) {
-        byFleet.set(key, { machine, index });
-        return;
-      }
-
-      const previousTime = Date.parse(clean(previous.machine.updated_at)) || 0;
-      const currentTime = Date.parse(clean(machine.updated_at)) || 0;
-
-      if (currentTime > previousTime) {
-        byFleet.set(key, { machine, index });
-        return;
-      }
-
-      if (currentTime === previousTime && index > previous.index) {
-        byFleet.set(key, { machine, index });
-      }
-    });
-
-  return Array.from(byFleet.values())
-    .map((item) => item.machine)
-    .sort((a, b) => {
-      const typeCompare = clean(a.type).localeCompare(clean(b.type), undefined, {
-        numeric: true,
-        sensitivity: "base",
-      });
-
-      if (typeCompare !== 0) return typeCompare;
-
-      return clean(a.fleet).localeCompare(clean(b.fleet), undefined, {
-        numeric: true,
-        sensitivity: "base",
-      });
-    });
+  return true;
 }
 
-function tableScore(table: string, rows: any[], machines: Machine[]) {
-  const columns = Object.keys(rows[0] || {});
-  let score = machines.length;
+function cleanMachineList(rows: any[]) {
+  const map = new Map<string, Machine>();
 
-  if (findColumn(columns, FIELD_ALIASES.status)) score += 100;
-  if (findColumn(columns, FIELD_ALIASES.availability)) score += 100;
-  if (findColumn(columns, FIELD_ALIASES.online_status)) score += 60;
-  if (findColumn(columns, FIELD_ALIASES.hours_down)) score += 40;
-  if (findColumn(columns, FIELD_ALIASES.downtime_reason)) score += 40;
+  rows.forEach((row) => {
+    if (!row || typeof row !== "object" || Array.isArray(row)) return;
+    if (!isValidMachine(row)) return;
 
-  const priority = MAIN_REGISTER_TABLES.length - MAIN_REGISTER_TABLES.indexOf(table);
-  return score + priority * 10000;
+    const machine = normalize(row);
+    map.set(machineKey(machine), machine);
+  });
+
+  return Array.from(map.values()).sort((a, b) => a.fleet.localeCompare(b.fleet, undefined, { numeric: true }));
+}
+
+function isMachineArray(value: any) {
+  if (!Array.isArray(value) || value.length === 0) return false;
+  const sample = value.slice(0, 25);
+  const valid = sample.filter((item) => item && typeof item === "object" && !Array.isArray(item) && isValidMachine(item));
+  return valid.length >= Math.min(2, sample.length);
+}
+
+function scoreLocalCandidate(key: string, path: (string | number)[], rows: any[]) {
+  const cleaned = cleanMachineList(rows);
+  if (cleaned.length === 0) return -9999;
+
+  const k = key.toLowerCase();
+  let score = cleaned.length;
+
+  if (key === DASHBOARD_PRIMARY_KEY) score += 10000;
+  if (EXACT_LOCAL_KEYS.includes(key)) score += 3000;
+  if (k.includes("turbo")) score += 250;
+  if (k.includes("availability")) score += 250;
+  if (k.includes("machine")) score += 180;
+  if (k.includes("fleet")) score += 120;
+  if (path.join(".").toLowerCase().includes("machine")) score += 150;
+  if (cleaned.length >= 20 && cleaned.length <= 300) score += 700;
+  if (cleaned.length > 350) score -= 2000;
+
+  const hasAvailabilityFields = rows.some((row) =>
+    row &&
+    typeof row === "object" &&
+    ("availability" in row || "majorRepair" in row || "repairReason" in row || "sparesEta" in row)
+  );
+  if (hasAvailabilityFields) score += 800;
+
+  return score;
+}
+
+function walkForMachineArrays(value: any, path: (string | number)[] = [], out: { path: (string | number)[]; rows: any[] }[] = []) {
+  if (!value || typeof value !== "object") return out;
+
+  if (isMachineArray(value)) {
+    out.push({ path, rows: value });
+    return out;
+  }
+
+  if (Array.isArray(value)) {
+    value.slice(0, 20).forEach((child, index) => walkForMachineArrays(child, [...path, index], out));
+    return out;
+  }
+
+  Object.entries(value).forEach(([childKey, childValue]) => {
+    if (["machines", "machineData", "data", "register", "rows", "dataset", "fleet", "items", "records", "state"].some((name) => childKey.toLowerCase().includes(name.toLowerCase()))) {
+      walkForMachineArrays(childValue, [...path, childKey], out);
+    } else if (typeof childValue === "object" && childValue !== null) {
+      walkForMachineArrays(childValue, [...path, childKey], out);
+    }
+  });
+
+  return out;
+}
+
+function readValueAtPath(root: any, path: (string | number)[]) {
+  return path.reduce((current, part) => (current == null ? undefined : current[part as any]), root);
+}
+
+function setValueAtPath(root: any, path: (string | number)[], value: any) {
+  if (path.length === 0) return value;
+
+  const clone = Array.isArray(root) ? [...root] : { ...root };
+  let current = clone;
+
+  for (let index = 0; index < path.length - 1; index += 1) {
+    const part = path[index];
+    const next = current[part as any];
+    current[part as any] = Array.isArray(next) ? [...next] : { ...next };
+    current = current[part as any];
+  }
+
+  current[path[path.length - 1] as any] = value;
+  return clone;
+}
+
+function toDashboardRow(machine: Machine) {
+  const status = machine.majorRepair || machine.major_repair ? "Major Repair" : machine.status;
+  const updatedDate = new Date().toLocaleString();
+
+  return {
+    ...(machine.__raw || {}),
+    ...machine,
+    fleet: machine.fleet,
+    type: machine.type || typeFromFleet(machine.fleet),
+    machineType: machine.machineType || machine.machine_type || machine.machine || machine.type,
+    machine_type: machine.machineType || machine.machine_type || machine.machine || machine.type,
+    machine: machine.machine || machine.machineType || machine.machine_type || machine.type,
+    status,
+    location: machine.location || "Hwange",
+    department: machine.department || "Workshop",
+    availability: num(machine.availability),
+    hours_worked: machine.hours_worked ?? machine.hoursWorked ?? "",
+    hoursWorked: machine.hoursWorked ?? machine.hours_worked ?? "",
+    hours_down: num(machine.hours_down ?? machine.hoursDown),
+    hoursDown: num(machine.hoursDown ?? machine.hours_down),
+    downtime_reason: machine.downtime_reason || machine.downtimeReason || "",
+    downtimeReason: machine.downtimeReason || machine.downtime_reason || "",
+    repair_reason: machine.repair_reason || machine.repairReason || "",
+    repairReason: machine.repairReason || machine.repair_reason || "",
+    spares_eta: machine.spares_eta || machine.sparesEta || "",
+    sparesEta: machine.sparesEta || machine.spares_eta || "",
+    online_status: machine.online_status || machine.onlineStatus || (status === "Available" ? "Online" : "Offline"),
+    onlineStatus: machine.onlineStatus || machine.online_status || (status === "Available" ? "Online" : "Offline"),
+    majorRepair: status === "Major Repair" || bool(machine.majorRepair) || bool(machine.major_repair),
+    major_repair: status === "Major Repair" || bool(machine.majorRepair) || bool(machine.major_repair),
+    updated: updatedDate,
+    updated_at: new Date().toISOString(),
+    updated_by: "Foreman Control",
+  };
 }
 
 function isOfflineOrRepair(machine: Machine) {
-  const status = clean(machine.status).toLowerCase();
-  const online = clean(machine.online_status).toLowerCase();
+  const status = lower(machine.status);
+  const online = lower(machine.online_status || machine.onlineStatus);
 
   return (
     online === "offline" ||
-    machine.major_repair === true ||
     status.includes("down") ||
     status.includes("repair") ||
     status.includes("maintenance") ||
-    status.includes("major")
+    status.includes("major") ||
+    status.includes("standby")
   );
 }
 
 function statusClass(status: string) {
-  const s = clean(status).toLowerCase();
+  const s = status.toLowerCase();
 
   if (s.includes("available")) return "good";
   if (s.includes("major")) return "major";
   if (s.includes("repair")) return "repair";
   if (s.includes("maint")) return "maintenance";
   if (s.includes("down")) return "down";
+  if (s.includes("stand")) return "neutral";
 
   return "neutral";
 }
 
+function buildSupabasePayload(machine: Machine) {
+  return {
+    fleet: machine.fleet,
+    type: machine.type,
+    machine_type: machine.machineType || machine.machine_type || machine.machine || machine.type,
+    status: machine.status,
+    department: machine.department,
+    location: machine.location,
+    availability: num(machine.availability),
+    hours_worked: machine.hours_worked ?? machine.hoursWorked ?? null,
+    hours_down: num(machine.hours_down ?? machine.hoursDown),
+    downtime_reason: machine.downtime_reason || machine.downtimeReason || "",
+    repair_reason: machine.repair_reason || machine.repairReason || "",
+    spares_eta: machine.spares_eta || machine.sparesEta || "",
+    online_status: machine.online_status || machine.onlineStatus || (machine.status === "Available" ? "Online" : "Offline"),
+    major_repair: machine.status === "Major Repair" || bool(machine.majorRepair) || bool(machine.major_repair),
+    updated_at: new Date().toISOString(),
+    updated_by: "Foreman Control",
+  };
+}
+
 export default function MachineControlPage() {
   const selectedKeyRef = useRef("");
+  const sourceRef = useRef<DataSource>(null);
 
   const [loggedIn, setLoggedIn] = useState(false);
   const [loginName, setLoginName] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [loginError, setLoginError] = useState("");
 
-  const [tableName, setTableName] = useState("");
-  const [tableColumns, setTableColumns] = useState<string[]>([]);
+  const [source, setSource] = useState<DataSource>(null);
   const [machines, setMachines] = useState<Machine[]>([]);
   const [search, setSearch] = useState("");
   const [selectedKey, setSelectedKey] = useState("");
   const [draft, setDraft] = useState<Machine | null>(null);
   const [loading, setLoading] = useState(true);
-  const [savingId, setSavingId] = useState<string | null>(null);
+  const [savingId, setSavingId] = useState<string | number | null>(null);
   const [message, setMessage] = useState("");
   const [lastRefresh, setLastRefresh] = useState("");
 
   useEffect(() => {
     selectedKeyRef.current = selectedKey;
   }, [selectedKey]);
+
+  useEffect(() => {
+    sourceRef.current = source;
+  }, [source]);
 
   useEffect(() => {
     const saved = sessionStorage.getItem("turbo_machine_control_login");
@@ -504,10 +529,11 @@ export default function MachineControlPage() {
     const name = loginName.trim().toLowerCase();
     const pass = loginPassword.trim();
 
-    if ((name === "controle" || name === "control" || name === "foreman") && pass === "1234") {
+    if ((name === "controle" || name === "control" || name === "foreman" || name === "admin") && pass === "1234") {
       sessionStorage.setItem("turbo_machine_control_login", "true");
       setLoggedIn(true);
       setLoginError("");
+      setTimeout(() => loadMachines(), 50);
       return;
     }
 
@@ -521,67 +547,92 @@ export default function MachineControlPage() {
     setLoginPassword("");
   }
 
-  async function loadMachines(showLoading = true) {
-    if (showLoading) setLoading(true);
-    setMessage("");
+  function chooseLocalStorageSource() {
+    if (typeof window === "undefined") return null;
 
-    if (!supabaseUrl || !supabaseAnonKey) {
-      setMessage("Supabase environment variables are missing on Vercel.");
-      setLoading(false);
-      return;
+    const candidates: { key: string; path: (string | number)[]; rows: any[]; score: number }[] = [];
+
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (!key) continue;
+
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+
+      try {
+        const parsed = JSON.parse(raw);
+        const found = walkForMachineArrays(parsed);
+
+        found.forEach((item) => {
+          candidates.push({
+            key,
+            path: item.path,
+            rows: item.rows,
+            score: scoreLocalCandidate(key, item.path, item.rows),
+          });
+        });
+      } catch {
+        // ignore non JSON values
+      }
     }
 
-    const foundRegisters: Array<{
-      table: string;
-      rows: any[];
-      machines: Machine[];
-      score: number;
-    }> = [];
+    candidates.sort((a, b) => b.score - a.score);
+    const chosen = candidates[0];
 
-    for (const table of MAIN_REGISTER_TABLES) {
-      const { data, error } = await supabase.from(table).select("*").limit(5000);
+    if (!chosen || chosen.score < 0) return null;
+
+    return {
+      source: {
+        kind: "localStorage" as const,
+        key: chosen.key,
+        path: chosen.path,
+        label: `main dashboard browser register: ${chosen.key}${chosen.path.length ? `/${chosen.path.join("/")}` : ""}`,
+      },
+      machines: cleanMachineList(chosen.rows),
+    };
+  }
+
+  async function chooseSupabaseSource() {
+    if (!supabase) return null;
+
+    for (const table of SUPABASE_TABLE_CANDIDATES) {
+      const { data, error } = await supabase.from(table).select("*").limit(1200);
 
       if (error || !data || data.length === 0) continue;
 
-      const cleaned = prepareMachines(data);
-      if (cleaned.length === 0) continue;
-
-      foundRegisters.push({
-        table,
-        rows: data,
-        machines: cleaned,
-        score: tableScore(table, data, cleaned),
-      });
-    }
-
-    if (foundRegisters.length === 0) {
-      setMachines([]);
-      setSelectedKey("");
-      selectedKeyRef.current = "";
-      setDraft(null);
-      setTableName("");
-      setTableColumns([]);
-      setMessage(
-        "No main availability register found. This page is locked to machine_availability / machine_availability_register / availability_register so it does not pull wrong data from the other apps."
+      const cleaned = cleanMachineList(data);
+      const hasAvailabilityFields = data.some((row) =>
+        row &&
+        typeof row === "object" &&
+        ("availability" in row || "majorRepair" in row || "major_repair" in row || "repairReason" in row || "sparesEta" in row)
       );
-      setLastRefresh(new Date().toLocaleTimeString());
-      setLoading(false);
-      return;
+
+      if (cleaned.length > 0 && cleaned.length <= 350 && hasAvailabilityFields) {
+        return {
+          source: {
+            kind: "supabase" as const,
+            table,
+            label: `Supabase live availability table: ${table}`,
+          },
+          machines: cleaned,
+        };
+      }
     }
 
-    foundRegisters.sort((a, b) => b.score - a.score);
-    const chosen = foundRegisters[0];
-    const loaded = chosen.machines;
+    return null;
+  }
+
+  function applyLoadedData(nextMachines: Machine[], nextSource: DataSource) {
     const keepKey = selectedKeyRef.current;
 
-    setTableName(chosen.table);
-    setTableColumns(Object.keys(chosen.rows[0] || {}));
-    setMachines(loaded);
+    setSource(nextSource);
+    sourceRef.current = nextSource;
+    setMachines(nextMachines);
     setLastRefresh(new Date().toLocaleTimeString());
 
-    if (loaded.length > 0) {
-      const kept = keepKey ? loaded.find((machine) => machineKey(machine) === keepKey) : null;
-      const target = kept || loaded[0];
+    if (nextMachines.length > 0) {
+      const kept = keepKey ? nextMachines.find((m) => machineKey(m) === keepKey) : null;
+      const target = kept || nextMachines[0];
 
       setSelectedKey(machineKey(target));
       selectedKeyRef.current = machineKey(target);
@@ -591,32 +642,89 @@ export default function MachineControlPage() {
       selectedKeyRef.current = "";
       setDraft(null);
     }
+  }
 
+  async function loadMachines(showLoading = true) {
+    if (showLoading) setLoading(true);
+    setMessage("");
+
+    const local = chooseLocalStorageSource();
+
+    if (local && local.machines.length > 0) {
+      applyLoadedData(local.machines, local.source);
+      setMessage(`Loaded ${local.machines.length} machine(s) from the same dashboard register.`);
+      setLoading(false);
+      return;
+    }
+
+    const remote = await chooseSupabaseSource();
+
+    if (remote && remote.machines.length > 0) {
+      applyLoadedData(remote.machines, remote.source);
+      setMessage(`Loaded ${remote.machines.length} machine(s) from Supabase availability table.`);
+      setLoading(false);
+      return;
+    }
+
+    setMachines([]);
+    setSelectedKey("");
+    selectedKeyRef.current = "";
+    setDraft(null);
+    setSource(null);
+    sourceRef.current = null;
+    setLastRefresh(new Date().toLocaleTimeString());
+    setMessage(
+      "No main dashboard register found. Open the main Machine Availability page once on this same browser, or upload the register there, then press Refresh here."
+    );
     setLoading(false);
   }
 
   useEffect(() => {
+    if (!loggedIn) return;
+
     loadMachines();
 
     const timer = setInterval(() => {
       loadMachines(false);
-    }, 30000);
+    }, 20000);
 
-    return () => clearInterval(timer);
+    const onStorage = (event: StorageEvent) => {
+      if (!event.key || event.key.toLowerCase().includes("machine") || event.key.toLowerCase().includes("turbo")) {
+        loadMachines(false);
+      }
+    };
+
+    const onTurboUpdate = () => loadMachines(false);
+
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("turbo-machine-data-updated", onTurboUpdate);
+
+    let channel: BroadcastChannel | null = null;
+    if ("BroadcastChannel" in window) {
+      channel = new BroadcastChannel("turbo-machine-availability");
+      channel.onmessage = () => loadMachines(false);
+    }
+
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("turbo-machine-data-updated", onTurboUpdate);
+      if (channel) channel.close();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [loggedIn]);
 
   useEffect(() => {
-    if (!tableName) return;
+    if (!source || source.kind !== "supabase" || !supabase) return;
 
     const channel = supabase
-      .channel(`machine-control-${tableName}`)
+      .channel(`machine-control-${source.table}`)
       .on(
         "postgres_changes",
         {
           event: "*",
           schema: "public",
-          table: tableName,
+          table: source.table,
         },
         () => {
           loadMachines(false);
@@ -628,26 +736,31 @@ export default function MachineControlPage() {
       supabase.removeChannel(channel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tableName]);
+  }, [source]);
 
   const searchedMachines = useMemo(() => {
     const q = search.toLowerCase().trim();
 
     if (!q) return machines;
 
-    return machines.filter((machine) =>
+    return machines.filter((m) =>
       [
-        machine.fleet,
-        machine.type,
-        machine.machine,
-        machine.machine_type,
-        machine.status,
-        machine.department,
-        machine.location,
-        machine.online_status,
-        machine.downtime_reason,
-        machine.repair_reason,
-        machine.spares_eta,
+        m.fleet,
+        m.type,
+        m.machine,
+        m.machineType,
+        m.machine_type,
+        m.status,
+        m.department,
+        m.location,
+        m.online_status,
+        m.onlineStatus,
+        m.downtime_reason,
+        m.downtimeReason,
+        m.repair_reason,
+        m.repairReason,
+        m.spares_eta,
+        m.sparesEta,
       ]
         .join(" ")
         .toLowerCase()
@@ -659,14 +772,12 @@ export default function MachineControlPage() {
 
   const stats = useMemo(() => {
     const total = machines.length;
-    const offline = offlineMachines.length;
+    const offline = machines.filter(isOfflineOrRepair).length;
     const online = total - offline;
-    const major = machines.filter(
-      (machine) => machine.major_repair === true || clean(machine.status).toLowerCase().includes("major")
-    ).length;
+    const major = machines.filter((m) => clean(m.status).toLowerCase().includes("major") || bool(m.majorRepair) || bool(m.major_repair)).length;
 
     return { total, online, offline, major };
-  }, [machines, offlineMachines]);
+  }, [machines]);
 
   useEffect(() => {
     if (searchedMachines.length === 0) {
@@ -676,7 +787,7 @@ export default function MachineControlPage() {
       return;
     }
 
-    const stillVisible = searchedMachines.find((machine) => machineKey(machine) === selectedKey);
+    const stillVisible = searchedMachines.find((m) => machineKey(m) === selectedKey);
 
     if (stillVisible) {
       setDraft(stillVisible);
@@ -688,107 +799,122 @@ export default function MachineControlPage() {
     }
   }, [searchedMachines, selectedKey]);
 
-  function writePayloadValue(payload: any, fieldName: string, value: any) {
-    if (value === undefined) return;
+  function saveToMainLocalStorage(nextMachines: Machine[], activeSource: DataSource) {
+    if (typeof window === "undefined") return;
 
-    const column = findColumn(tableColumns, FIELD_ALIASES[fieldName] || [fieldName]);
-    if (column) payload[column] = value;
-  }
+    const dashboardRows = nextMachines.map(toDashboardRow);
 
-  function buildUpdatePayload(patch: Partial<Machine>) {
-    const payload: any = {};
+    if (activeSource && activeSource.kind === "localStorage") {
+      try {
+        const raw = localStorage.getItem(activeSource.key);
+        const parsed = raw ? JSON.parse(raw) : [];
+        const currentRows = readValueAtPath(parsed, activeSource.path);
 
-    writePayloadValue(payload, "status", patch.status);
-    writePayloadValue(payload, "department", patch.department);
-    writePayloadValue(payload, "location", patch.location);
-    writePayloadValue(payload, "availability", patch.availability);
-    writePayloadValue(payload, "hours_worked", patch.hours_worked);
-    writePayloadValue(payload, "hours_down", patch.hours_down);
-    writePayloadValue(payload, "downtime_reason", patch.downtime_reason);
-    writePayloadValue(payload, "repair_reason", patch.repair_reason);
-    writePayloadValue(payload, "spares_eta", patch.spares_eta);
-    writePayloadValue(payload, "online_status", patch.online_status);
-    writePayloadValue(payload, "major_repair", patch.major_repair);
+        if (Array.isArray(currentRows)) {
+          const mergedByFleet = new Map<string, any>();
+          currentRows.forEach((row) => {
+            if (row && typeof row === "object") {
+              const normalized = normalize(row);
+              if (!isHeaderOrBadFleet(normalized.fleet)) {
+                mergedByFleet.set(machineKey(normalized), row);
+              }
+            }
+          });
 
-    const updatedAtColumn = findColumn(tableColumns, FIELD_ALIASES.updated_at);
-    const updatedByColumn = findColumn(tableColumns, FIELD_ALIASES.updated_by);
-
-    if (updatedAtColumn) payload[updatedAtColumn] = new Date().toISOString();
-    if (updatedByColumn) payload[updatedByColumn] = "Control";
-
-    return payload;
-  }
-
-  async function updateMachine(machine: Machine, patch: Partial<Machine>) {
-    if (!tableName) {
-      setMessage("No Supabase availability table selected. Refresh first.");
-      return;
+          dashboardRows.forEach((row) => mergedByFleet.set(machineKey(row), row));
+          const merged = Array.from(mergedByFleet.values()).sort((a, b) => clean(a.fleet).localeCompare(clean(b.fleet), undefined, { numeric: true }));
+          const updatedRoot = setValueAtPath(parsed, activeSource.path, merged);
+          localStorage.setItem(activeSource.key, JSON.stringify(updatedRoot));
+        }
+      } catch {
+        localStorage.setItem(activeSource.key, JSON.stringify(dashboardRows));
+      }
     }
 
-    const saveKey = machineKey(machine);
-    setSavingId(saveKey);
+    localStorage.setItem(DASHBOARD_PRIMARY_KEY, JSON.stringify(dashboardRows));
+    window.dispatchEvent(new Event("turbo-machine-data-updated"));
 
-    const nextMachine = normalizeRow({
-      ...machine,
-      ...patch,
-      updated_at: new Date().toISOString(),
-      updated_by: "Control",
-    });
-
-    setMachines((previous) =>
-      previous.map((item) => (machineKey(item) === saveKey ? nextMachine : item))
-    );
-
-    setDraft(nextMachine);
-    setSelectedKey(machineKey(nextMachine));
-    selectedKeyRef.current = machineKey(nextMachine);
-
-    const payload = buildUpdatePayload(patch);
-
-    if (Object.keys(payload).length === 0) {
-      setMessage("No matching writable columns found in the selected availability table.");
-      setSavingId(null);
-      await loadMachines(false);
-      return;
+    if ("BroadcastChannel" in window) {
+      const channel = new BroadcastChannel("turbo-machine-availability");
+      channel.postMessage({ type: "machines-updated", at: Date.now() });
+      channel.close();
     }
+  }
 
-    let query = supabase.from(tableName).update(payload);
+  async function saveToSupabase(machine: Machine, activeSource: DataSource) {
+    if (!supabase || !activeSource || activeSource.kind !== "supabase") return null;
 
-    if (machine.id !== undefined && machine.id !== null && tableColumns.includes("id")) {
+    const payload = buildSupabasePayload(machine);
+    let query = supabase.from(activeSource.table).update(payload);
+
+    if (machine.id !== undefined && machine.id !== null) {
       query = query.eq("id", machine.id);
     } else {
-      const fleetColumn = machine.__fleet_column || findColumn(tableColumns, FIELD_ALIASES.fleet) || "fleet";
-      query = query.eq(fleetColumn, machine.__fleet_value || machine.fleet);
+      query = query.eq("fleet", machine.fleet);
     }
 
     const { error } = await query;
+    return error;
+  }
+
+  async function updateMachine(machine: Machine, patch: Partial<Machine>) {
+    const id = machine.id ?? machine.fleet;
+    const activeSource = sourceRef.current;
+    setSavingId(id);
+
+    const patched = normalize({
+      ...machine,
+      ...patch,
+      updated: new Date().toLocaleString(),
+      updated_at: new Date().toISOString(),
+      updated_by: "Foreman Control",
+    });
+
+    const nextMachines = machines.map((m) => (machineKey(m) === machineKey(machine) ? patched : m));
+
+    setMachines(nextMachines);
+    setDraft(patched);
+    setSelectedKey(machineKey(patched));
+    selectedKeyRef.current = machineKey(patched);
+
+    saveToMainLocalStorage(nextMachines, activeSource);
+
+    const error = await saveToSupabase(patched, activeSource);
 
     if (error) {
-      setMessage(`Update failed: ${error.message}`);
-      await loadMachines(false);
+      setMessage(`Saved to dashboard browser register, but Supabase update failed: ${error.message}`);
     } else {
-      setMessage(`${machine.fleet} updated and saved to ${tableName}.`);
-      await loadMachines(false);
+      setMessage(`${patched.fleet} saved to the same main dashboard register.`);
     }
 
+    setLastRefresh(new Date().toLocaleTimeString());
     setSavingId(null);
   }
 
   async function saveDraft() {
     if (!draft) return;
 
+    const status = draft.majorRepair || draft.major_repair ? "Major Repair" : draft.status;
+
     await updateMachine(draft, {
-      status: draft.status,
+      status,
       department: draft.department,
       location: draft.location,
       availability: draft.availability,
-      hours_worked: draft.hours_worked,
-      hours_down: draft.hours_down,
-      downtime_reason: draft.downtime_reason,
-      repair_reason: draft.repair_reason,
-      spares_eta: draft.spares_eta,
-      online_status: draft.online_status,
-      major_repair: draft.status === "Major Repair" || draft.major_repair === true,
+      hours_worked: draft.hours_worked ?? draft.hoursWorked,
+      hoursWorked: draft.hoursWorked ?? draft.hours_worked,
+      hours_down: draft.hours_down ?? draft.hoursDown,
+      hoursDown: draft.hoursDown ?? draft.hours_down,
+      downtime_reason: draft.downtime_reason ?? draft.downtimeReason,
+      downtimeReason: draft.downtimeReason ?? draft.downtime_reason,
+      repair_reason: draft.repair_reason ?? draft.repairReason,
+      repairReason: draft.repairReason ?? draft.repair_reason,
+      spares_eta: draft.spares_eta ?? draft.sparesEta,
+      sparesEta: draft.sparesEta ?? draft.spares_eta,
+      online_status: draft.online_status ?? draft.onlineStatus,
+      onlineStatus: draft.onlineStatus ?? draft.online_status,
+      major_repair: status === "Major Repair",
+      majorRepair: status === "Major Repair",
     });
   }
 
@@ -796,12 +922,18 @@ export default function MachineControlPage() {
     await updateMachine(machine, {
       status: "Available",
       online_status: "Online",
+      onlineStatus: "Online",
       availability: 100,
       hours_down: 0,
+      hoursDown: 0,
       downtime_reason: "",
+      downtimeReason: "",
       repair_reason: "",
+      repairReason: "",
       spares_eta: "",
+      sparesEta: "",
       major_repair: false,
+      majorRepair: false,
     });
   }
 
@@ -809,20 +941,23 @@ export default function MachineControlPage() {
     await updateMachine(machine, {
       status: "Down",
       online_status: "Offline",
+      onlineStatus: "Offline",
       availability: 0,
-      downtime_reason: machine.downtime_reason || "Booked offline by control",
+      downtime_reason: machine.downtime_reason || machine.downtimeReason || "Booked offline by foreman",
+      downtimeReason: machine.downtimeReason || machine.downtime_reason || "Booked offline by foreman",
       major_repair: false,
+      majorRepair: false,
     });
   }
 
   function updateDraft(patch: Partial<Machine>) {
-    setDraft((previous) => (previous ? normalizeRow({ ...previous, ...patch }) : previous));
+    setDraft((prev) => (prev ? normalize({ ...prev, ...patch }) : prev));
   }
 
   function selectMachine(key: string) {
     setSelectedKey(key);
     selectedKeyRef.current = key;
-    const found = searchedMachines.find((machine) => machineKey(machine) === key);
+    const found = searchedMachines.find((m) => machineKey(m) === key);
     setDraft(found || null);
   }
 
@@ -837,21 +972,12 @@ export default function MachineControlPage() {
           <form onSubmit={handleLogin} className="loginForm">
             <label>
               Username
-              <input
-                value={loginName}
-                onChange={(event) => setLoginName(event.target.value)}
-                placeholder="controle"
-              />
+              <input value={loginName} onChange={(e) => setLoginName(e.target.value)} placeholder="controle" />
             </label>
 
             <label>
               Password
-              <input
-                type="password"
-                value={loginPassword}
-                onChange={(event) => setLoginPassword(event.target.value)}
-                placeholder="1234"
-              />
+              <input type="password" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} placeholder="1234" />
             </label>
 
             {loginError && <div className="loginError">{loginError}</div>}
@@ -873,16 +999,14 @@ export default function MachineControlPage() {
         <div>
           <p className="eyebrow">TURBO ENERGY</p>
           <h1>Machine Controle</h1>
-          <p>
-            Search one machine, update its status, book online/offline, and monitor current breakdowns from the live main availability register.
-          </p>
+          <p>Search one machine, update its status, book online/offline, and monitor current breakdowns from the live main dashboard register.</p>
         </div>
 
         <div className="heroActions">
-          <button className="btn whiteBtn" onClick={() => loadMachines()}>
+          <button className="btn whiteBtn" onClick={() => loadMachines()} type="button">
             Refresh
           </button>
-          <button className="btn outlineBtn" onClick={logout}>
+          <button className="btn outlineBtn" onClick={logout} type="button">
             Logout
           </button>
         </div>
@@ -890,8 +1014,8 @@ export default function MachineControlPage() {
 
       {message && <section className="notice">{message}</section>}
 
-      <section className="sourceNotice">
-        Live source: <strong>{tableName || "main availability register"}</strong> · Last refresh: {lastRefresh || "-"}
+      <section className="sourceBar">
+        Live source: {source?.label || "waiting for main dashboard register"} · Last refresh: {lastRefresh || "-"}
       </section>
 
       <section className="stats">
@@ -925,11 +1049,7 @@ export default function MachineControlPage() {
           <div className="searchRow">
             <label>
               Search fleet
-              <input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Example: FEL05, TRL05, HT19..."
-              />
+              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Example: FEL05, TRL05, HT19..." />
             </label>
 
             <button className="btn smallBtn clearBtn" onClick={() => setSearch("")} type="button">
@@ -939,14 +1059,10 @@ export default function MachineControlPage() {
 
           <label>
             Select machine ({searchedMachines.length} found)
-            <select
-              value={selectedKey}
-              onChange={(event) => selectMachine(event.target.value)}
-              disabled={searchedMachines.length === 0}
-            >
-              {searchedMachines.map((machine) => (
-                <option key={machineKey(machine)} value={machineKey(machine)}>
-                  {machine.fleet} - {machine.type} - {machine.status}
+            <select value={selectedKey} onChange={(e) => selectMachine(e.target.value)} disabled={searchedMachines.length === 0}>
+              {searchedMachines.map((m) => (
+                <option key={machineKey(m)} value={machineKey(m)}>
+                  {m.fleet} - {m.type} - {m.status}
                 </option>
               ))}
             </select>
@@ -959,29 +1075,21 @@ export default function MachineControlPage() {
               <div className="machineTitle">
                 <div>
                   <h3>
-                    {draft.fleet} - {draft.machine || draft.type}
+                    {draft.fleet} - {draft.machineType || draft.machine_type || draft.machine || draft.type}
                   </h3>
                   <p>
                     {draft.department} · {draft.location || "-"}
                   </p>
                 </div>
-                <span className={`pill ${statusClass(draft.status)}`}>{draft.status}</span>
+                <span className={`pill ${statusClass(draft.status)}`}>{draft.majorRepair || draft.major_repair ? "Major Repair" : draft.status}</span>
               </div>
 
               <div className="quickActions">
-                <button
-                  className="btn greenBtn"
-                  onClick={() => bookOnline(draft)}
-                  disabled={savingId === machineKey(draft)}
-                >
+                <button className="btn greenBtn" onClick={() => bookOnline(draft)} disabled={savingId === (draft.id ?? draft.fleet)} type="button">
                   Book Online
                 </button>
 
-                <button
-                  className="btn blueBtn"
-                  onClick={() => bookOffline(draft)}
-                  disabled={savingId === machineKey(draft)}
-                >
+                <button className="btn blueBtn" onClick={() => bookOffline(draft)} disabled={savingId === (draft.id ?? draft.fleet)} type="button">
                   Book Offline
                 </button>
               </div>
@@ -991,9 +1099,9 @@ export default function MachineControlPage() {
               <div className="formGrid">
                 <label>
                   Department
-                  <select value={draft.department} onChange={(event) => updateDraft({ department: event.target.value })}>
-                    {departments.map((department) => (
-                      <option key={department}>{department}</option>
+                  <select value={draft.department} onChange={(e) => updateDraft({ department: e.target.value })}>
+                    {departments.map((d) => (
+                      <option key={d}>{d}</option>
                     ))}
                   </select>
                 </label>
@@ -1001,25 +1109,27 @@ export default function MachineControlPage() {
                 <label>
                   Status
                   <select
-                    value={draft.status}
-                    onChange={(event) =>
+                    value={draft.majorRepair || draft.major_repair ? "Major Repair" : draft.status}
+                    onChange={(e) =>
                       updateDraft({
-                        status: event.target.value,
-                        online_status: event.target.value === "Available" ? "Online" : "Offline",
-                        availability: event.target.value === "Available" ? 100 : 0,
-                        major_repair: event.target.value === "Major Repair",
+                        status: e.target.value,
+                        online_status: e.target.value === "Available" ? "Online" : "Offline",
+                        onlineStatus: e.target.value === "Available" ? "Online" : "Offline",
+                        availability: e.target.value === "Available" ? 100 : 0,
+                        major_repair: e.target.value === "Major Repair",
+                        majorRepair: e.target.value === "Major Repair",
                       })
                     }
                   >
-                    {statuses.map((status) => (
-                      <option key={status}>{status}</option>
+                    {statuses.map((s) => (
+                      <option key={s}>{s}</option>
                     ))}
                   </select>
                 </label>
 
                 <label>
                   Online / Offline
-                  <select value={draft.online_status || "Online"} onChange={(event) => updateDraft({ online_status: event.target.value })}>
+                  <select value={draft.online_status || draft.onlineStatus || "Online"} onChange={(e) => updateDraft({ online_status: e.target.value, onlineStatus: e.target.value })}>
                     <option>Online</option>
                     <option>Offline</option>
                   </select>
@@ -1027,17 +1137,17 @@ export default function MachineControlPage() {
 
                 <label>
                   Availability %
-                  <input value={draft.availability ?? ""} onChange={(event) => updateDraft({ availability: event.target.value })} />
+                  <input value={draft.availability ?? ""} onChange={(e) => updateDraft({ availability: e.target.value })} />
                 </label>
 
                 <label>
                   Hours Worked
-                  <input value={draft.hours_worked ?? ""} onChange={(event) => updateDraft({ hours_worked: event.target.value })} />
+                  <input value={draft.hours_worked ?? draft.hoursWorked ?? ""} onChange={(e) => updateDraft({ hours_worked: e.target.value, hoursWorked: e.target.value })} />
                 </label>
 
                 <label>
                   Hours Down
-                  <input value={draft.hours_down ?? ""} onChange={(event) => updateDraft({ hours_down: event.target.value })} />
+                  <input value={draft.hours_down ?? draft.hoursDown ?? ""} onChange={(e) => updateDraft({ hours_down: e.target.value, hoursDown: e.target.value })} />
                 </label>
               </div>
 
@@ -1048,8 +1158,8 @@ export default function MachineControlPage() {
                   Quick Downtime Reason
                   <select
                     value=""
-                    onChange={(event) => {
-                      if (event.target.value) updateDraft({ downtime_reason: event.target.value });
+                    onChange={(e) => {
+                      if (e.target.value) updateDraft({ downtime_reason: e.target.value, downtimeReason: e.target.value });
                     }}
                   >
                     {quickReasons.map((reason) => (
@@ -1062,36 +1172,33 @@ export default function MachineControlPage() {
 
                 <label>
                   Downtime Reason
-                  <input value={draft.downtime_reason ?? ""} onChange={(event) => updateDraft({ downtime_reason: event.target.value })} />
+                  <input value={draft.downtime_reason ?? draft.downtimeReason ?? ""} onChange={(e) => updateDraft({ downtime_reason: e.target.value, downtimeReason: e.target.value })} />
                 </label>
 
                 <label>
                   Repair Reason / Work Required
-                  <input value={draft.repair_reason ?? ""} onChange={(event) => updateDraft({ repair_reason: event.target.value })} />
+                  <input value={draft.repair_reason ?? draft.repairReason ?? ""} onChange={(e) => updateDraft({ repair_reason: e.target.value, repairReason: e.target.value })} />
                 </label>
 
                 <label>
                   ETA / Spares
-                  <input
-                    value={draft.spares_eta ?? ""}
-                    onChange={(event) => updateDraft({ spares_eta: event.target.value })}
-                    placeholder="Example: Awaiting spares, 14 May..."
-                  />
+                  <input value={draft.spares_eta ?? draft.sparesEta ?? ""} onChange={(e) => updateDraft({ spares_eta: e.target.value, sparesEta: e.target.value })} placeholder="Example: Awaiting spares, 14 May..." />
                 </label>
 
                 <label>
                   Location
-                  <input value={draft.location ?? ""} onChange={(event) => updateDraft({ location: event.target.value })} />
+                  <input value={draft.location ?? ""} onChange={(e) => updateDraft({ location: e.target.value })} />
                 </label>
               </div>
 
               <div className="saveRow">
                 <span>
-                  Fleet key: {machineKey(draft)} {tableName ? `| ${tableName}` : ""}
+                  Last refresh: {lastRefresh || "-"}
+                  {source?.label ? ` | ${source.label}` : ""}
                 </span>
 
-                <button className="btn whiteBtn saveBtn" onClick={saveDraft} disabled={savingId === machineKey(draft)}>
-                  {savingId === machineKey(draft) ? "Saving..." : "Save Updates"}
+                <button className="btn whiteBtn saveBtn" onClick={saveDraft} disabled={savingId === (draft.id ?? draft.fleet)} type="button">
+                  {savingId === (draft.id ?? draft.fleet) ? "Saving..." : "Save Updates"}
                 </button>
               </div>
             </div>
@@ -1127,7 +1234,7 @@ export default function MachineControlPage() {
                 {loading ? (
                   <tr>
                     <td colSpan={9} className="empty">
-                      Loading Supabase register...
+                      Loading register...
                     </td>
                   </tr>
                 ) : offlineMachines.length === 0 ? (
@@ -1137,32 +1244,32 @@ export default function MachineControlPage() {
                     </td>
                   </tr>
                 ) : (
-                  offlineMachines.map((machine) => (
+                  offlineMachines.map((m) => (
                     <tr
-                      key={`${machineKey(machine)}-offline`}
+                      key={`${machineKey(m)}-offline`}
                       className="clickableRow"
                       onClick={() => {
-                        setSearch(machine.fleet);
-                        setSelectedKey(machineKey(machine));
-                        selectedKeyRef.current = machineKey(machine);
-                        setDraft(machine);
+                        setSearch(m.fleet);
+                        setSelectedKey(machineKey(m));
+                        selectedKeyRef.current = machineKey(m);
+                        setDraft(m);
                       }}
                     >
                       <td>
                         <button className="fleetBtn" type="button">
-                          {machine.fleet}
+                          {m.fleet}
                         </button>
                       </td>
-                      <td>{machine.type}</td>
-                      <td>{machine.department}</td>
+                      <td>{m.type}</td>
+                      <td>{m.department}</td>
                       <td>
-                        <span className={`pill ${statusClass(machine.status)}`}>{machine.status}</span>
+                        <span className={`pill ${statusClass(m.status)}`}>{m.majorRepair || m.major_repair ? "Major Repair" : m.status}</span>
                       </td>
-                      <td>{machine.online_status || "-"}</td>
-                      <td>{num(machine.hours_down).toFixed(1)}</td>
-                      <td>{machine.downtime_reason || "-"}</td>
-                      <td>{machine.repair_reason || "-"}</td>
-                      <td>{machine.spares_eta || "-"}</td>
+                      <td>{m.online_status || m.onlineStatus || "-"}</td>
+                      <td>{num(m.hours_down ?? m.hoursDown).toFixed(1)}</td>
+                      <td>{m.downtime_reason || m.downtimeReason || "-"}</td>
+                      <td>{m.repair_reason || m.repairReason || "-"}</td>
+                      <td>{m.spares_eta || m.sparesEta || "-"}</td>
                     </tr>
                   ))
                 )}
@@ -1195,7 +1302,7 @@ const pageStyles = `
 
   .hero,
   .notice,
-  .sourceNotice,
+  .sourceBar,
   .stats,
   .workArea {
     max-width: 1600px;
@@ -1292,8 +1399,7 @@ const pageStyles = `
     color: #0f172a;
   }
 
-  .notice,
-  .sourceNotice {
+  .notice {
     background: rgba(2, 8, 23, 0.88);
     border-left: 6px solid #38bdf8;
     color: #ffffff;
@@ -1302,9 +1408,13 @@ const pageStyles = `
     font-weight: 800;
   }
 
-  .sourceNotice {
-    border-left-color: #f59e0b;
-    color: #dbeafe;
+  .sourceBar {
+    background: rgba(2, 8, 23, 0.88);
+    border-left: 6px solid #f59e0b;
+    color: #ffffff;
+    padding: 13px 18px;
+    border-radius: 12px;
+    font-weight: 900;
   }
 
   .stats {
@@ -1403,6 +1513,10 @@ const pageStyles = `
     outline: none;
   }
 
+  select:disabled {
+    opacity: 0.7;
+  }
+
   input:focus,
   select:focus {
     box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.42);
@@ -1496,7 +1610,7 @@ const pageStyles = `
   .tableWrap {
     overflow: auto;
     border-radius: 14px;
-    max-height: calc(100vh - 280px);
+    max-height: calc(100vh - 330px);
   }
 
   table {
