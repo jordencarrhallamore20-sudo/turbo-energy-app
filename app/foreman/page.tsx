@@ -51,6 +51,21 @@ const TABLE_CANDIDATES = [
   "fleet_machines",
 ];
 
+
+// Extra safety: when the dashboard is still reading an older availability table,
+// the foreman save updates those dashboard availability tables as well.
+// We do NOT update machine_register / machines / fleet_machines because those caused the wrong 745-machine list.
+const DASHBOARD_SAVE_TABLES = [
+  "machine_availability_live",
+  "machine_availability",
+  "machine_availability_register",
+  "availability_register",
+  "availability_live",
+  "availability",
+  "turbo_machine_availability",
+  "dashboard_machines",
+];
+
 const LEGACY_STORAGE_KEYS = [
   "turboMachineData",
   "machine_availability_prototype_final_v1",
@@ -447,6 +462,11 @@ export default function MachineControlPage() {
     if (error) throw error;
   }
 
+  async function saveOneToLiveTable(machine: Machine) {
+    const { error } = await supabase.from(LIVE_TABLE).upsert(toLiveDb(machine), { onConflict: "fleet" });
+    if (error) throw error;
+  }
+
   async function resolveDashboardSource() {
     const results: SourceInfo[] = [];
     const notes: string[] = [];
@@ -644,6 +664,56 @@ export default function MachineControlPage() {
     if (error) throw error;
   }
 
+  async function updateMatchingDashboardTables(machine: Machine) {
+    const notes: string[] = [];
+
+    for (const table of DASHBOARD_SAVE_TABLES) {
+      try {
+        // Live table always gets a direct upsert because this is the phone/shared source of truth.
+        if (table === LIVE_TABLE) {
+          await saveOneToLiveTable(machine);
+          notes.push(`${table}: upserted`);
+          continue;
+        }
+
+        const result = await fetchSource(table);
+        if (!result) continue;
+
+        const fleetColumn = findColumn(result.columns, [
+          "fleet",
+          "id",
+          "unit",
+          "unit_no",
+          "unitNo",
+          "fleet_no",
+          "fleetNo",
+          "fleet_number",
+          "fleetNumber",
+          "machine_number",
+          "machineNumber",
+          "registration",
+        ]);
+
+        if (!fleetColumn) continue;
+
+        const exists = result.rows.some((row) => machineKey(row) === machineKey(machine));
+        if (!exists) continue;
+
+        const payload = buildUpdatePayload(machine, result.columns);
+        if (Object.keys(payload).length === 0) continue;
+
+        const { error } = await supabase.from(table).update(payload).eq(fleetColumn, machine.fleet);
+        if (error) throw error;
+        notes.push(`${table}: updated`);
+      } catch (error: any) {
+        // Ignore tables that do not exist or use a different schema, but keep diagnostics visible.
+        notes.push(`${table}: skipped (${error.message || String(error)})`);
+      }
+    }
+
+    return notes;
+  }
+
   async function saveMachine(machine: Machine) {
     const normalized = normalize(machine);
     if (!normalized) return;
@@ -657,9 +727,10 @@ export default function MachineControlPage() {
     updateDashboardBrowserData(nextRows);
 
     try {
-      await saveAllToLiveTable(nextRows);
+      const saveNotes = await updateMatchingDashboardTables(normalized);
       await updateExistingDashboardTable(normalized);
-      setMessage(`${normalized.fleet} saved. Foreman table: ${activeTable || LIVE_TABLE}. Live copy updated for other phones.`);
+      setDiagnostics((prev) => [...saveNotes, ...prev].slice(0, 20));
+      setMessage(`${normalized.fleet} saved live. Status: ${normalized.status} / ${normalized.online_status}. Dashboard sync checked.`);
       await loadMachines(false);
     } catch (error: any) {
       setMessage(`Save failed: ${error.message || String(error)}. Check Supabase table policies or run the SQL setup again.`);
